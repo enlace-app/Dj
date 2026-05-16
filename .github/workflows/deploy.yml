@@ -13,7 +13,8 @@ jobs:
         with:
           node-version: 18
       - run: rm -f package-lock.json
-      - run: npm install
+      - run: npm install --legacy-peer-deps
+      - run: npm install tailwindcss@3 --legacy-peer-deps
       - run: npm run build
       - uses: peaceiris/actions-gh-pages@v3
         with:
