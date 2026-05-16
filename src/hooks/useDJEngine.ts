@@ -72,22 +72,17 @@ export const useDJEngine = () => {
     analyserA.current = new Tone.Analyser("waveform", 256);
     analyserB.current = new Tone.Analyser("waveform", 256);
 
-    // FX Chains
-    delayA.current = new Tone.FeedbackDelay("8n", 0.5).connect(crossfaderNode.current.a);
-    distA.current = new Tone.Compressor(-20, 3).connect(delayA.current);
-    filterA.current = new Tone.Filter(20000, "lowpass").connect(distA.current);
+    // FX Chains - clean signal path
+    filterA.current = new Tone.Filter(20000, "lowpass").connect(crossfaderNode.current.a);
     filterA.current.connect(analyserA.current);
     
-    delayB.current = new Tone.FeedbackDelay("8n", 0.5).connect(crossfaderNode.current.b);
-    distB.current = new Tone.Compressor(-20, 3).connect(delayB.current);
-    filterB.current = new Tone.Filter(20000, "lowpass").connect(distB.current);
+    filterB.current = new Tone.Filter(20000, "lowpass").connect(crossfaderNode.current.b);
     filterB.current.connect(analyserB.current);
 
-    // Initial bypass
+    delayA.current = new Tone.FeedbackDelay("8n", 0.3);
+    delayB.current = new Tone.FeedbackDelay("8n", 0.3);
     delayA.current.wet.value = 0;
     delayB.current.wet.value = 0;
-    distA.current.wet.value = 0;
-    distB.current.wet.value = 0;
 
     playerA.current = new Tone.Player().connect(filterA.current);
     playerB.current = new Tone.Player().connect(filterB.current);
