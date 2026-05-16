@@ -59,8 +59,8 @@ export const useDJEngine = () => {
   const reverb = useRef<Tone.Reverb | null>(null);
   const delayA = useRef<Tone.FeedbackDelay | null>(null);
   const delayB = useRef<Tone.FeedbackDelay | null>(null);
-  const distA = useRef<Tone.BitCrusher | null>(null);
-  const distB = useRef<Tone.BitCrusher | null>(null);
+  const distA = useRef<Tone.Compressor | null>(null);
+  const distB = useRef<Tone.Compressor | null>(null);
   const filterA = useRef<Tone.Filter | null>(null);
   const filterB = useRef<Tone.Filter | null>(null);
 
@@ -74,12 +74,12 @@ export const useDJEngine = () => {
 
     // FX Chains
     delayA.current = new Tone.FeedbackDelay("8n", 0.5).connect(crossfaderNode.current.a);
-    distA.current = new Tone.BitCrusher(4).connect(delayA.current);
+    distA.current = new Tone.Compressor(-20, 3).connect(delayA.current);
     filterA.current = new Tone.Filter(20000, "lowpass").connect(distA.current);
     filterA.current.connect(analyserA.current);
     
     delayB.current = new Tone.FeedbackDelay("8n", 0.5).connect(crossfaderNode.current.b);
-    distB.current = new Tone.BitCrusher(4).connect(delayB.current);
+    distB.current = new Tone.Compressor(-20, 3).connect(delayB.current);
     filterB.current = new Tone.Filter(20000, "lowpass").connect(distB.current);
     filterB.current.connect(analyserB.current);
 
