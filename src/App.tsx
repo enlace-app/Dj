@@ -53,6 +53,7 @@ export default function App() {
             onEQChange={(deck, low, mid, high) => engine.setEQ(deck, low, mid, high)}
             onScratch={(offset) => engine.seekTo('A', engine.deckA.progress + offset)}
             getVisualizerData={engine.analyserDataA}
+            getFreqData={engine.freqDataA}
           />
         </motion.div>
 
@@ -85,6 +86,7 @@ export default function App() {
             onEQChange={(deck, low, mid, high) => engine.setEQ(deck, low, mid, high)}
             onScratch={(offset) => engine.seekTo('B', engine.deckB.progress + offset)}
             getVisualizerData={engine.analyserDataB}
+            getFreqData={engine.freqDataB}
           />
         </motion.div>
       </main>
@@ -100,7 +102,7 @@ export default function App() {
             <span className="text-[7px] text-slate-400 font-mono uppercase">{engine.isRecording ? 'REC' : 'Idle'}</span>
           </div>
         </div>
-        <span className="text-[7px] text-slate-600 font-mono">v2.0.0</span>
+        <span className="text-[7px] text-slate-600 font-mono">v2.1.0</span>
       </footer>
 
       <AnimatePresence>
@@ -114,7 +116,8 @@ export default function App() {
                 <li className="flex gap-2"><span className="text-indigo-400 font-mono font-bold">02.</span><span>Usa el <b>Crossfader</b> del centro para mezclar entre A y B.</span></li>
                 <li className="flex gap-2"><span className="text-indigo-400 font-mono font-bold">03.</span><span><b>Sync</b> iguala los BPMs automáticamente.</span></li>
                 <li className="flex gap-2"><span className="text-indigo-400 font-mono font-bold">04.</span><span><b>AI Mix</b> hace la transición completa — sincroniza, arranca B y mezcla suavemente.</span></li>
-                <li className="flex gap-2"><span className="text-indigo-400 font-mono font-bold">05.</span><span>Pulsa <b>Rec</b> para grabar tu sesión.</span></li>
+                <li className="flex gap-2"><span className="text-indigo-400 font-mono font-bold">05.</span><span><b>✨ Magic</b> hace una mezcla épica con curva S profesional.</span></li>
+                <li className="flex gap-2"><span className="text-indigo-400 font-mono font-bold">06.</span><span>Pulsa <b>Rec</b> para grabar tu sesión.</span></li>
               </ul>
               <button onClick={() => setShowInfo(false)} className="w-full mt-5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 font-bold py-2 rounded-xl border border-indigo-500/30 text-sm transition-all">Cerrar</button>
             </motion.div>
