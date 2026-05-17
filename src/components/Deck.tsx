@@ -16,10 +16,11 @@ interface DeckProps {
   onEQChange: (deck: 'A' | 'B', low: number, mid: number, high: number) => void;
   onScratch: (timeOffset: number) => void;
   getVisualizerData: () => any;
+  getFreqData?: () => any;
 }
 
 export const Deck: React.FC<DeckProps> = ({
-  id, state, onLoad, onTogglePlay, onRateChange, onFilterChange, onFXChange, onEQChange, onScratch, getVisualizerData
+  id, state, onLoad, onTogglePlay, onRateChange, onFilterChange, onFXChange, onEQChange, onScratch, getVisualizerData, getFreqData
 }) => {
   const [eq, setEq] = useState({ low: 0, mid: 0, high: 0 });
   const [hotcues, setHotcues] = useState<number[]>([]);
@@ -42,9 +43,7 @@ export const Deck: React.FC<DeckProps> = ({
   };
 
   const addHotcue = () => {
-    if (hotcues.length < 4) {
-      setHotcues([...hotcues, state.progress]);
-    }
+    if (hotcues.length < 4) setHotcues([...hotcues, state.progress]);
   };
 
   const eqBands = [
@@ -58,7 +57,7 @@ export const Deck: React.FC<DeckProps> = ({
   return (
     <div className="flex flex-col h-full w-full bg-white/5 backdrop-blur-xl rounded-xl border border-white/10 overflow-hidden relative p-1.5 gap-1">
 
-      {/* Marca de agua DECK */}
+      {/* Marca de agua */}
       <div className="absolute top-1 left-2 text-indigo-400 font-black italic opacity-10 text-2xl pointer-events-none select-none">
         {id}
       </div>
@@ -77,12 +76,26 @@ export const Deck: React.FC<DeckProps> = ({
         )}
       </AnimatePresenceWrapper>
 
-      {/* Header del deck */}
+      {/* Header */}
       <div className="flex justify-between items-center px-1 shrink-0">
         <span className="text-slate-500 font-mono text-[8px] tracking-widest uppercase font-bold">Ch. {id}</span>
-        <span className={`font-mono text-[8px] font-bold uppercase ${state.isPlaying ? 'text-indigo-400 animate-pulse' : 'text-slate-600'}`}>
-          {state.isPlaying ? '● PLAY' : '● STOP'}
-        </span>
+        <div className="flex items-center gap-1.5">
+          {state.bpm > 0 && state.isLoaded && (
+            <span className="text-[6px] text-slate-600 font-mono">{state.bpm} BPM</span>
+          )}
+          <span className={`font-mono text-[8px] font-bold uppercase ${state.isPlaying ? 'text-indigo-400 animate-pulse' : 'text-slate-600'}`}>
+            {state.isPlaying ? '● PLAY' : '● STOP'}
+          </span>
+        </div>
+      </div>
+
+      {/* Visualizador de frecuencias — barras que muestran el subidón */}
+      <div className="shrink-0 h-10 w-full rounded-lg overflow-hidden bg-black/30 border border-white/5">
+        <Visualizer
+          getData={getVisualizerData}
+          freqData={getFreqData}
+          mode="bars"
+        />
       </div>
 
       {/* Plato */}
@@ -122,7 +135,7 @@ export const Deck: React.FC<DeckProps> = ({
 
         <button
           onClick={onTogglePlay}
-          disabled={state.fileName === 'No Track Loaded'}
+          disabled={!state.isLoaded}
           className={`flex flex-col items-center justify-center gap-0.5 py-1.5 rounded-lg transition-all border active:scale-95 ${
             state.isPlaying
               ? 'bg-indigo-600 text-white border-indigo-400 shadow-[0_0_8px_rgba(79,70,229,0.4)]'
@@ -161,9 +174,7 @@ export const Deck: React.FC<DeckProps> = ({
           <button
             onClick={() => { setEq({ low: 0, mid: 0, high: 0 }); onEQChange(id, 0, 0, 0); }}
             className="text-[5px] text-slate-600 hover:text-slate-400 uppercase font-bold"
-          >
-            Reset
-          </button>
+          >Reset</button>
         </div>
         <div className="grid grid-cols-3 gap-1">
           {eqBands.map(({ label, band, color }) => (
@@ -172,15 +183,9 @@ export const Deck: React.FC<DeckProps> = ({
                 <span className="text-[5px] text-slate-500 font-mono">{label}</span>
                 <span className="text-[5px] text-slate-500 font-mono">{eq[band] > 0 ? `+${eq[band]}` : eq[band]}dB</span>
               </div>
-              <input
-                type="range"
-                min="-15"
-                max="15"
-                step="1"
-                value={eq[band]}
+              <input type="range" min="-15" max="15" step="1" value={eq[band]}
                 onChange={(e) => handleEQ(band, parseFloat(e.target.value))}
-                className={`w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer ${color}`}
-              />
+                className={`w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer ${color}`} />
             </div>
           ))}
         </div>
@@ -191,26 +196,18 @@ export const Deck: React.FC<DeckProps> = ({
         <div className="flex justify-between items-center mb-0.5">
           <span className="text-[6px] text-slate-500 uppercase font-black">Hotcues</span>
           {hotcues.length < 4 && (
-            <button
-              onClick={addHotcue}
-              className="text-[5px] text-indigo-400 hover:text-indigo-300 uppercase font-bold border border-indigo-500/30 px-1 rounded"
-            >
+            <button onClick={addHotcue} className="text-[5px] text-indigo-400 uppercase font-bold border border-indigo-500/30 px-1 rounded">
               + Marcar
             </button>
           )}
         </div>
         <div className="grid grid-cols-4 gap-1">
-          {[0, 1, 2, 3].map((i) => (
-            <button
-              key={i}
+          {[0,1,2,3].map((i) => (
+            <button key={i}
               onClick={() => hotcues[i] !== undefined && onScratch(hotcues[i] - state.progress)}
               className={`py-1 rounded text-[6px] font-black uppercase transition-all active:scale-95 ${
-                hotcues[i] !== undefined
-                  ? `${hotcueColors[i]} text-white shadow-sm`
-                  : 'bg-white/5 text-slate-700 border border-white/5'
-              }`}
-            >
-              {hotcues[i] !== undefined ? formatTime(hotcues[i]) : `CUE ${i + 1}`}
+                hotcues[i] !== undefined ? `${hotcueColors[i]} text-white shadow-sm` : 'bg-white/5 text-slate-700 border border-white/5'}`}>
+              {hotcues[i] !== undefined ? formatTime(hotcues[i]) : `CUE ${i+1}`}
             </button>
           ))}
         </div>
@@ -223,31 +220,20 @@ export const Deck: React.FC<DeckProps> = ({
             <span className="text-[6px] text-slate-500 uppercase font-black">Pitch</span>
             <span className="text-[7px] text-indigo-400 font-mono">{(state.playbackRate * 100).toFixed(0)}%</span>
           </div>
-          <input
-            type="range"
-            min="0.5"
-            max="2"
-            step="0.01"
-            value={state.playbackRate}
+          <input type="range" min="0.8" max="1.2" step="0.01" value={state.playbackRate}
             onChange={(e) => onRateChange(parseFloat(e.target.value))}
-            className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-          />
+            className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500" />
         </div>
-        <button
-          onClick={() => setLoopActive(!loopActive)}
+        <button onClick={() => setLoopActive(!loopActive)}
           className={`shrink-0 px-2 py-1 rounded text-[6px] font-black uppercase border transition-all active:scale-95 ${
-            loopActive
-              ? 'bg-green-500/20 text-green-400 border-green-500/40 shadow-[0_0_6px_rgba(34,197,94,0.3)]'
-              : 'bg-white/5 text-slate-500 border-white/10'
-          }`}
-        >
+            loopActive ? 'bg-green-500/20 text-green-400 border-green-500/40 shadow-[0_0_6px_rgba(34,197,94,0.3)]' : 'bg-white/5 text-slate-500 border-white/10'}`}>
           {loopActive ? '⟳ Loop ON' : '⟳ Loop'}
         </button>
       </div>
 
-      {/* Visualizer de fondo */}
-      <div className="absolute inset-x-0 bottom-0 h-[20%] opacity-10 pointer-events-none -z-0">
-        <Visualizer getData={getVisualizerData} />
+      {/* Waveform de fondo */}
+      <div className="absolute inset-x-0 bottom-0 h-[15%] opacity-10 pointer-events-none -z-0">
+        <Visualizer getData={getVisualizerData} mode="waveform" />
       </div>
     </div>
   );
