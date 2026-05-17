@@ -16,6 +16,75 @@ export interface DeckState {
   suggestedNext?: { suggestion: string; tip: string };
 }
 
+// Real BPM detection using Web Audio API
+async function detectBPM(audioBuffer: AudioBuffer): Promise<number> {
+  try {
+    const offlineCtx = new OfflineAudioContext(1, audioBuffer.length, audioBuffer.sampleRate);
+    const source = offlineCtx.createBufferSource();
+    source.buffer = audioBuffer;
+
+    // High-pass filter to isolate beats
+    const filter = offlineCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 150;
+
+    source.connect(filter);
+    filter.connect(offlineCtx.destination);
+    source.start(0);
+
+    const rendered = await offlineCtx.startRendering();
+    const data = rendered.getChannelData(0);
+    const sampleRate = rendered.sampleRate;
+
+    // Energy detection
+    const windowSize = Math.floor(sampleRate * 0.02); // 20ms windows
+    const energies: number[] = [];
+
+    for (let i = 0; i < data.length - windowSize; i += windowSize) {
+      let energy = 0;
+      for (let j = 0; j < windowSize; j++) {
+        energy += data[i + j] * data[i + j];
+      }
+      energies.push(energy / windowSize);
+    }
+
+    // Find peaks (beats)
+    const avg = energies.reduce((a, b) => a + b, 0) / energies.length;
+    const threshold = avg * 1.5;
+    const peaks: number[] = [];
+    let lastPeak = -10;
+
+    for (let i = 1; i < energies.length - 1; i++) {
+      if (energies[i] > threshold && energies[i] > energies[i - 1] && energies[i] > energies[i + 1]) {
+        if (i - lastPeak > 10) { // Minimum distance between beats
+          peaks.push(i * windowSize / sampleRate);
+          lastPeak = i;
+        }
+      }
+    }
+
+    if (peaks.length < 4) return 128; // Default if not enough peaks
+
+    // Calculate intervals between peaks
+    const intervals: number[] = [];
+    for (let i = 1; i < Math.min(peaks.length, 50); i++) {
+      intervals.push(peaks[i] - peaks[i - 1]);
+    }
+
+    // Average interval → BPM
+    const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+    let bpm = Math.round(60 / avgInterval);
+
+    // Normalize to reasonable range (60-180 BPM)
+    while (bpm < 60) bpm *= 2;
+    while (bpm > 180) bpm /= 2;
+
+    return bpm;
+  } catch {
+    return 128;
+  }
+}
+
 export const useDJEngine = () => {
   const [deckA, setDeckA] = useState<DeckState>({
     isPlaying: false,
@@ -65,22 +134,23 @@ export const useDJEngine = () => {
   const filterB = useRef<Tone.Filter | null>(null);
   const eqA = useRef<Tone.EQ3 | null>(null);
   const eqB = useRef<Tone.EQ3 | null>(null);
+
+  // Store raw AudioBuffers for BPM detection
+  const rawBufferA = useRef<AudioBuffer | null>(null);
+  const rawBufferB = useRef<AudioBuffer | null>(null);
+
   useEffect(() => {
-    // Initialize Tone.js nodes
     crossfaderNode.current = new Tone.CrossFade(0.5).toDestination();
-    
-    // Analyzers for each deck
     analyserA.current = new Tone.Analyser("waveform", 256);
     analyserB.current = new Tone.Analyser("waveform", 256);
 
-    // FX Chains - clean signal path
     eqA.current = new Tone.EQ3(0, 0, 0).connect(crossfaderNode.current.a);
-filterA.current = new Tone.Filter(20000, "lowpass").connect(eqA.current);
-filterA.current.connect(analyserA.current);
+    filterA.current = new Tone.Filter(20000, "lowpass").connect(eqA.current);
+    filterA.current.connect(analyserA.current);
 
-eqB.current = new Tone.EQ3(0, 0, 0).connect(crossfaderNode.current.b);
-filterB.current = new Tone.Filter(20000, "lowpass").connect(eqB.current);
-filterB.current.connect(analyserB.current);
+    eqB.current = new Tone.EQ3(0, 0, 0).connect(crossfaderNode.current.b);
+    filterB.current = new Tone.Filter(20000, "lowpass").connect(eqB.current);
+    filterB.current.connect(analyserB.current);
 
     delayA.current = new Tone.FeedbackDelay("8n", 0.3);
     delayB.current = new Tone.FeedbackDelay("8n", 0.3);
@@ -112,51 +182,38 @@ filterB.current.connect(analyserB.current);
 
   const loadTrack = useCallback(async (deck: 'A' | 'B', track: File | string) => {
     try {
-      console.log(`Loading track for Deck ${deck}...`);
       if (Tone.getContext().state !== 'running') {
         await Tone.start();
-        console.log("Tone.js started");
       }
       
       const url = typeof track === 'string' ? track : URL.createObjectURL(track);
       const fileName = typeof track === 'string' ? track.split('/').pop() || 'Sample Track' : track.name;
-      
       const player = deck === 'A' ? playerA.current : playerB.current;
       
       if (player) {
         player.stop();
         
-        let buffer: Tone.ToneAudioBuffer;
+        let audioBuffer: AudioBuffer;
 
         if (typeof track === 'string') {
-          console.log(`Loading external sample: ${url}`);
-          try {
-            const response = await fetch(url, { mode: 'cors' });
-            if (!response.ok) {
-              if (response.status === 404) throw new Error(`Track not found (404). The sample link might be broken.`);
-              throw new Error(`HTTP Error ${response.status}: ${response.statusText}`);
-            }
-            const arrayBuffer = await response.arrayBuffer();
-            const audioBuffer = await Tone.getContext().decodeAudioData(arrayBuffer);
-            buffer = new Tone.ToneAudioBuffer(audioBuffer);
-          } catch (e) {
-            console.warn("Fetch failed, attempting Tone.Buffer fallback", e);
-            // Fallback to Tone's own loader which handles some edge cases differently
-            buffer = await new Tone.ToneAudioBuffer().load(url);
-          }
+          const response = await fetch(url, { mode: 'cors' });
+          const arrayBuffer = await response.arrayBuffer();
+          audioBuffer = await Tone.getContext().decodeAudioData(arrayBuffer);
         } else {
-          // It's a local file
           const arrayBuffer = await track.arrayBuffer();
-          const audioBuffer = await Tone.getContext().decodeAudioData(arrayBuffer);
-          buffer = new Tone.ToneAudioBuffer(audioBuffer);
+          audioBuffer = await Tone.getContext().decodeAudioData(arrayBuffer);
         }
 
-        player.buffer = buffer;
-        console.log(`Buffer loaded: ${buffer.duration} seconds`);
+        // Store raw buffer for BPM detection
+        if (deck === 'A') rawBufferA.current = audioBuffer;
+        else rawBufferB.current = audioBuffer;
+
+        const toneBuffer = new Tone.ToneAudioBuffer(audioBuffer);
+        player.buffer = toneBuffer;
         
         const stateUpdate = {
-          fileName: fileName,
-          duration: buffer.duration,
+          fileName,
+          duration: audioBuffer.duration,
           progress: 0,
           isPlaying: false,
           isLoaded: true,
@@ -165,26 +222,29 @@ filterB.current.connect(analyserB.current);
         if (deck === 'A') setDeckA(prev => ({ ...prev, ...stateUpdate }));
         else setDeckB(prev => ({ ...prev, ...stateUpdate }));
 
-        // Trigger AI Analysis and Suggestion after load
+        // Real BPM detection
+        detectBPM(audioBuffer).then(bpm => {
+          console.log(`Detected BPM for Deck ${deck}: ${bpm}`);
+          if (deck === 'A') setDeckA(prev => ({ ...prev, bpm }));
+          else setDeckB(prev => ({ ...prev, bpm }));
+        });
+
+        // AI Analysis
         analyzeTrack(fileName).then(analysis => {
-          const analysisUpdate = { key: analysis.key, bpm: analysis.bpm };
+          const analysisUpdate = { key: analysis.key };
           if (deck === 'A') setDeckA(prev => ({ ...prev, ...analysisUpdate }));
           else setDeckB(prev => ({ ...prev, ...analysisUpdate }));
         }).catch(err => console.error("AI Analysis failed:", err));
 
         getDJAdvice(fileName).then(advice => {
           setAISuggestion(deck, advice);
-        }).catch(err => console.error("AI Auto-Advice failed:", err));
+        }).catch(err => console.error("AI Advice failed:", err));
       }
     } catch (error) {
       console.error("Error loading track:", error);
-      const errorMsg = error instanceof Error ? error.message : "Network error or invalid audio format";
-      
       const errorUpdate = { fileName: 'Load Failed', isLoaded: false };
       if (deck === 'A') setDeckA(prev => ({ ...prev, ...errorUpdate }));
       else setDeckB(prev => ({ ...prev, ...errorUpdate }));
-      
-      throw new Error(errorMsg);
     }
   }, []);
 
@@ -222,31 +282,30 @@ filterB.current.connect(analyserB.current);
   const seekTo = useCallback((deck: 'A' | 'B', time: number) => {
     const player = deck === 'A' ? playerA.current : playerB.current;
     if (player && player.loaded) {
-      // Ensure time is within bounds
       const safeTime = Math.max(0, Math.min(time, player.buffer.duration));
-      
       if (player.state === 'started') {
         player.stop();
         player.start(undefined, safeTime);
       } else {
-        // Just update internal seconds if stopped (though Tone.Player might not reflect this immediately)
-        // We'll manage it via state if needed, but start() with offset is key
         player.start(undefined, safeTime);
         player.stop(); 
       }
-      
       if (deck === 'A') setDeckA(prev => ({ ...prev, progress: safeTime }));
       else setDeckB(prev => ({ ...prev, progress: safeTime }));
     }
   }, []);
 
+  // Real BPM sync — adjusts playback rate to match BPMs
   const syncDecks = useCallback(() => {
-    // Simple implementation: sync playback rate of B to A or A to B
-    // Usually requires BPM detection, here we just match playback rates
-    if (deckA.playbackRate !== deckB.playbackRate) {
-      setPlaybackRate('B', deckA.playbackRate);
+    const bpmA = deckA.bpm;
+    const bpmB = deckB.bpm;
+    if (bpmA > 0 && bpmB > 0 && bpmA !== bpmB) {
+      // Sync B to A's BPM
+      const newRate = (bpmB / bpmA) * deckA.playbackRate;
+      const clampedRate = Math.max(0.5, Math.min(2, newRate));
+      setPlaybackRate('B', clampedRate);
     }
-  }, [deckA.playbackRate, deckB.playbackRate, setPlaybackRate]);
+  }, [deckA.bpm, deckB.bpm, deckA.playbackRate, setPlaybackRate]);
 
   const startRecording = useCallback(async () => {
     if (recorder.current) {
@@ -267,7 +326,6 @@ filterB.current.connect(analyserB.current);
     }
   }, []);
 
-  // Update progress
   useEffect(() => {
     const interval = setInterval(() => {
       if (playerA.current?.state === 'started') {
@@ -282,17 +340,14 @@ filterB.current.connect(analyserB.current);
 
   const startAutoMix = useCallback((toDeck: 'A' | 'B') => {
     if (autoMixInterval.current) clearInterval(autoMixInterval.current);
-    
     const targetValue = toDeck === 'A' ? 0 : 1;
-    const step = (targetValue - crossfader) / 50; 
+    const step = (targetValue - crossfader) / 50;
     let count = 0;
-
     autoMixInterval.current = window.setInterval(() => {
       handleCrossfade(crossfader + step * count);
       count++;
       if (count >= 50) {
         if (autoMixInterval.current) clearInterval(autoMixInterval.current);
-        // Fade complete
       }
     }, 100);
   }, [crossfader, handleCrossfade]);
@@ -320,24 +375,25 @@ filterB.current.connect(analyserB.current);
     startAutoMix,
     setAISuggestion,
     setFilter: (deck: 'A' | 'B', freq: number) => {
-        const filter = deck === 'A' ? filterA.current : filterB.current;
-        if (filter) filter.frequency.value = freq;
+      const filter = deck === 'A' ? filterA.current : filterB.current;
+      if (filter) filter.frequency.value = freq;
     },
     setEQ: (deck: 'A' | 'B', low: number, mid: number, high: number) => {
-  const eq = deck === 'A' ? eqA.current : eqB.current;
-  if (eq) {
-    eq.low.value = low;
-    eq.mid.value = mid;
-    eq.high.value = high;
-  }
-},setFX: (deck: 'A' | 'B', type: 'delay' | 'dist', value: number) => {
-        if (type === 'delay') {
-            const fx = deck === 'A' ? delayA.current : delayB.current;
-            if (fx) fx.wet.value = value;
-        } else {
-            const fx = deck === 'A' ? distA.current : distB.current;
-            if (fx) fx.wet.value = value;
-        }
+      const eq = deck === 'A' ? eqA.current : eqB.current;
+      if (eq) {
+        eq.low.value = low;
+        eq.mid.value = mid;
+        eq.high.value = high;
+      }
+    },
+    setFX: (deck: 'A' | 'B', type: 'delay' | 'dist', value: number) => {
+      if (type === 'delay') {
+        const fx = deck === 'A' ? delayA.current : delayB.current;
+        if (fx) fx.wet.value = value;
+      } else {
+        const fx = deck === 'A' ? distA.current : distB.current;
+        if (fx) fx.wet.value = value;
+      }
     }
   };
 };
