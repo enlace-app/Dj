@@ -63,7 +63,8 @@ export const useDJEngine = () => {
   const distB = useRef<Tone.Compressor | null>(null);
   const filterA = useRef<Tone.Filter | null>(null);
   const filterB = useRef<Tone.Filter | null>(null);
-
+  const eqA = useRef<Tone.EQ3 | null>(null);
+  const eqB = useRef<Tone.EQ3 | null>(null);
   useEffect(() => {
     // Initialize Tone.js nodes
     crossfaderNode.current = new Tone.CrossFade(0.5).toDestination();
@@ -73,11 +74,13 @@ export const useDJEngine = () => {
     analyserB.current = new Tone.Analyser("waveform", 256);
 
     // FX Chains - clean signal path
-    filterA.current = new Tone.Filter(20000, "lowpass").connect(crossfaderNode.current.a);
-    filterA.current.connect(analyserA.current);
-    
-    filterB.current = new Tone.Filter(20000, "lowpass").connect(crossfaderNode.current.b);
-    filterB.current.connect(analyserB.current);
+    eqA.current = new Tone.EQ3(0, 0, 0).connect(crossfaderNode.current.a);
+filterA.current = new Tone.Filter(20000, "lowpass").connect(eqA.current);
+filterA.current.connect(analyserA.current);
+
+eqB.current = new Tone.EQ3(0, 0, 0).connect(crossfaderNode.current.b);
+filterB.current = new Tone.Filter(20000, "lowpass").connect(eqB.current);
+filterB.current.connect(analyserB.current);
 
     delayA.current = new Tone.FeedbackDelay("8n", 0.3);
     delayB.current = new Tone.FeedbackDelay("8n", 0.3);
@@ -320,7 +323,14 @@ export const useDJEngine = () => {
         const filter = deck === 'A' ? filterA.current : filterB.current;
         if (filter) filter.frequency.value = freq;
     },
-    setFX: (deck: 'A' | 'B', type: 'delay' | 'dist', value: number) => {
+    setEQ: (deck: 'A' | 'B', low: number, mid: number, high: number) => {
+  const eq = deck === 'A' ? eqA.current : eqB.current;
+  if (eq) {
+    eq.low.value = low;
+    eq.mid.value = mid;
+    eq.high.value = high;
+  }
+},setFX: (deck: 'A' | 'B', type: 'delay' | 'dist', value: number) => {
         if (type === 'delay') {
             const fx = deck === 'A' ? delayA.current : delayB.current;
             if (fx) fx.wet.value = value;
