@@ -14,7 +14,7 @@ export interface DeckState {
   isLoaded: boolean;
   key?: string;
   suggestedNext?: { suggestion: string; tip: string };
-  energy: number; // 0-1 for reactive skin
+  energy: number;
 }
 
 async function detectBPM(audioBuffer: AudioBuffer): Promise<number> {
@@ -72,7 +72,7 @@ export const useDJEngine = () => {
   });
   const [crossfader, setCrossfader] = useState(0.5);
   const [isRecording, setIsRecording] = useState(false);
-  const [masterEnergy, setMasterEnergy] = useState(0); // 0-1 for reactive skin
+  const [masterEnergy, setMasterEnergy] = useState(0);
 
   const playerA = useRef<Tone.Player | null>(null);
   const playerB = useRef<Tone.Player | null>(null);
@@ -84,19 +84,28 @@ export const useDJEngine = () => {
   const freqAnalyserB = useRef<Tone.Analyser | null>(null);
   const masterAnalyser = useRef<Tone.Analyser | null>(null);
   const autoMixInterval = useRef<number | null>(null);
+  
+  // Effects chains
   const delayA = useRef<Tone.FeedbackDelay | null>(null);
   const delayB = useRef<Tone.FeedbackDelay | null>(null);
   const filterA = useRef<Tone.Filter | null>(null);
   const filterB = useRef<Tone.Filter | null>(null);
   const eqA = useRef<Tone.EQ3 | null>(null);
   const eqB = useRef<Tone.EQ3 | null>(null);
-  // Professional audio: limiter + compressor on master
+  
+  // New effects: reverb, looper
+  const reverbA = useRef<Tone.Reverb | null>(null);
+  const reverbB = useRef<Tone.Reverb | null>(null);
+  const looperA = useRef<Tone.Loop | null>(null);
+  const looperB = useRef<Tone.Loop | null>(null);
+  const looperBufferA = useRef<Float32Array | null>(null);
+  const looperBufferB = useRef<Float32Array | null>(null);
+  
+  // Master
   const masterLimiter = useRef<Tone.Limiter | null>(null);
   const masterCompressor = useRef<Tone.Compressor | null>(null);
 
   useEffect(() => {
-    // Professional audio chain:
-    // Players → Filter → EQ → Crossfade → Compressor → Limiter → Destination
     masterLimiter.current = new Tone.Limiter(-1).toDestination();
     masterCompressor.current = new Tone.Compressor({
       threshold: -18, ratio: 3, attack: 0.003, release: 0.1, knee: 6,
@@ -111,12 +120,16 @@ export const useDJEngine = () => {
     masterAnalyser.current = new Tone.Analyser("fft", 32);
     masterCompressor.current.connect(masterAnalyser.current);
 
-    eqA.current = new Tone.EQ3(0, 0, 0).connect(crossfaderNode.current.a);
+    // New reverbs for natural space
+    reverbA.current = new Tone.Reverb({ decay: 1.5, wet: 0 }).connect(crossfaderNode.current.a);
+    reverbB.current = new Tone.Reverb({ decay: 1.5, wet: 0 }).connect(crossfaderNode.current.b);
+
+    eqA.current = new Tone.EQ3(0, 0, 0).connect(reverbA.current);
     filterA.current = new Tone.Filter(20000, "lowpass").connect(eqA.current);
     filterA.current.connect(analyserA.current);
     filterA.current.connect(freqAnalyserA.current);
 
-    eqB.current = new Tone.EQ3(0, 0, 0).connect(crossfaderNode.current.b);
+    eqB.current = new Tone.EQ3(0, 0, 0).connect(reverbB.current);
     filterB.current = new Tone.Filter(20000, "lowpass").connect(eqB.current);
     filterB.current.connect(analyserB.current);
     filterB.current.connect(freqAnalyserB.current);
@@ -132,7 +145,7 @@ export const useDJEngine = () => {
     recorder.current = new Tone.Recorder();
     masterLimiter.current.connect(recorder.current);
 
-    // Energy detection loop for reactive skin
+    // Energy detection
     const energyInterval = setInterval(() => {
       if (masterAnalyser.current) {
         const data = masterAnalyser.current.getValue() as Float32Array;
@@ -157,6 +170,8 @@ export const useDJEngine = () => {
       masterAnalyser.current?.dispose();
       masterCompressor.current?.dispose();
       masterLimiter.current?.dispose();
+      reverbA.current?.dispose();
+      reverbB.current?.dispose();
     };
   }, []);
 
@@ -301,9 +316,14 @@ export const useDJEngine = () => {
       const eq = deck === 'A' ? eqA.current : eqB.current;
       if (eq) { eq.low.value = low; eq.mid.value = mid; eq.high.value = high; }
     },
-    setFX: (deck: 'A' | 'B', type: 'delay' | 'dist', value: number) => {
-      const fx = type === 'delay' ? (deck === 'A' ? delayA.current : delayB.current) : null;
-      if (fx) fx.wet.value = value;
+    setFX: (deck: 'A' | 'B', type: 'delay' | 'reverb', value: number) => {
+      if (type === 'delay') {
+        const fx = deck === 'A' ? delayA.current : delayB.current;
+        if (fx) fx.wet.value = value;
+      } else if (type === 'reverb') {
+        const fx = deck === 'A' ? reverbA.current : reverbB.current;
+        if (fx) fx.wet.value = value;
+      }
     },
   };
 };
