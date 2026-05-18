@@ -16,11 +16,12 @@ interface MixerProps {
   onTogglePlayB: () => void;
   onSetRateA: (r: number) => void;
   onSetRateB: (r: number) => void;
+  accentColor?: string;
 }
 
 export const Mixer: React.FC<MixerProps> = ({ 
   crossfade, onCrossfadeChange, isRecording, onStartRecording, onStopRecording,
-  onSync, onAutoMix, deckA, deckB, onTogglePlayA, onTogglePlayB, onSetRateA, onSetRateB,
+  onSync, onAutoMix, deckA, deckB, onTogglePlayA, onTogglePlayB, onSetRateA, onSetRateB, accentColor = '#6366f1'
 }) => {
   const [aiMixActive, setAiMixActive] = useState(false);
   const [magicActive, setMagicActive] = useState(false);
@@ -55,15 +56,12 @@ export const Mixer: React.FC<MixerProps> = ({
     }
     setAiMixActive(true);
     setStatus('🎵 Sincronizando BPMs...');
-
-    // Clamp rate to ±10% for natural sound
     if (deckA.bpm > 0 && deckB.bpm > 0) {
       const rate = Math.max(0.9, Math.min(1.1, deckA.bpm / deckB.bpm));
       onSetRateB(rate);
     }
     onCrossfadeChange(0);
     if (!deckA.isPlaying) onTogglePlayA();
-
     setTimeout(() => {
       setStatus('▶️ Arrancando plato B...');
       if (!deckB.isPlaying) onTogglePlayB();
@@ -91,15 +89,11 @@ export const Mixer: React.FC<MixerProps> = ({
       return;
     }
     if (magicActive) return;
-
     magicTimers.current.forEach(t => clearTimeout(t));
     magicTimers.current = [];
     setMagicActive(true);
     setMagicPhase(1);
-
     const goToB = crossfade <= 0.5;
-
-    // FASE 1: Sync BPM — máximo ±10% para no distorsionar
     setStatus('✨ Analizando pistas...');
     if (deckA.bpm > 0 && deckB.bpm > 0) {
       const rawRate = goToB ? deckA.bpm / deckB.bpm : deckB.bpm / deckA.bpm;
@@ -108,22 +102,16 @@ export const Mixer: React.FC<MixerProps> = ({
       else onSetRateA(safeRate);
     }
     if (!deckA.isPlaying) onTogglePlayA();
-
-    // FASE 2: Arrancar plato destino
     mt(() => {
       setMagicPhase(2);
       setStatus('🎵 Preparando entrada...');
       if (goToB && !deckB.isPlaying) onTogglePlayB();
       if (!goToB && !deckA.isPlaying) onTogglePlayA();
     }, 1200);
-
-    // FASE 3: Efectos
     mt(() => {
       setMagicPhase(3);
       setStatus('🌊 Aplicando efectos...');
     }, 2400);
-
-    // FASE 4: Transición curva S
     mt(() => {
       setMagicPhase(4);
       setStatus('🎚️ Transición mágica...');
@@ -131,14 +119,11 @@ export const Mixer: React.FC<MixerProps> = ({
       const totalSteps = 100;
       const startCross = crossfade;
       const endCross = goToB ? 1 : 0;
-
       const interval = window.setInterval(() => {
         step++;
-        // Curva S natural
         const t = step / totalSteps;
         const s = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
         onCrossfadeChange(startCross + (endCross - startCross) * s);
-
         if (step >= totalSteps) {
           clearInterval(interval);
           setMagicPhase(5);
@@ -150,53 +135,64 @@ export const Mixer: React.FC<MixerProps> = ({
     }, 3500);
   };
 
-  const phaseGradients = ['', 
-    'from-yellow-600/20 to-orange-600/10',
-    'from-orange-600/20 to-pink-600/10',
-    'from-pink-600/20 to-purple-600/10',
-    'from-purple-600/20 to-indigo-600/10',
-    'from-indigo-600/20 to-cyan-600/10',
-  ];
-
   return (
-    <div className="flex flex-col items-center justify-between h-full py-2 px-1 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-2xl w-20 xs:w-28 sm:w-48 shadow-2xl relative overflow-hidden shrink-0">
+    <div
+      className="flex flex-col items-center justify-between h-full py-2 px-1 backdrop-blur-2xl rounded-2xl w-20 xs:w-28 sm:w-48 shadow-2xl relative overflow-hidden shrink-0 transition-all duration-300"
+      style={{
+        background: `rgba(255,255,255,0.03)`,
+        border: `1px solid ${accentColor}30`,
+        boxShadow: `0 0 20px ${accentColor}15, inset 0 0 10px ${accentColor}05`,
+      }}
+    >
       
       <AnimatePresence>
         {magicActive && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className={`absolute inset-0 bg-gradient-to-b ${phaseGradients[magicPhase]} pointer-events-none transition-all duration-1000`} />
+            className="absolute inset-0 pointer-events-none transition-all duration-1000 rounded-2xl"
+            style={{
+              background: `linear-gradient(135deg, ${accentColor}20, transparent)`,
+            }} />
         )}
       </AnimatePresence>
 
-      <div className="absolute top-0 right-0 p-2 opacity-5 pointer-events-none">
-        <Radio size={40} className="text-white" />
+      <div className="absolute top-0 right-0 p-2 opacity-5 pointer-events-none transition-all duration-300"
+        style={{ color: accentColor }}>
+        <Radio size={40} />
       </div>
 
       {/* Branding */}
       <div className="text-center z-10 w-full mb-1 hidden xs:block">
-        <h2 className="text-slate-500 font-mono text-[6px] tracking-[0.3em] uppercase font-black mb-1">Master</h2>
+        <h2 className="font-mono text-[6px] tracking-[0.3em] uppercase font-black mb-1 transition-all duration-300"
+          style={{ color: accentColor }}>Master</h2>
         <div className="flex items-center justify-center gap-1">
           <Radio size={8} className={isRecording ? 'text-red-500 animate-pulse' : 'text-slate-700'} />
           <div className="h-1 w-8 bg-white/5 rounded-full overflow-hidden border border-white/5">
             <motion.div animate={{ x: isRecording ? [-15, 15] : 0 }}
               transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
-              className="h-full w-4 bg-indigo-500 blur-[2px]" />
+              className="h-full w-4 blur-[2px]"
+              style={{ background: accentColor }} />
           </div>
         </div>
       </div>
 
       {/* BPM display */}
       <div className="w-full px-1 z-10">
-        <div className="bg-black/20 rounded-lg p-1 border border-white/5 flex justify-between items-center">
+        <div
+          className="rounded-lg p-1 border flex justify-between items-center transition-all duration-300"
+          style={{
+            background: `${accentColor}10`,
+            borderColor: `${accentColor}30`,
+          }}
+        >
           <div className="text-center flex-1">
             <div className="text-[5px] text-slate-600 uppercase font-bold">A</div>
-            <div className="text-[9px] text-indigo-400 font-mono font-bold">{deckA.bpm}</div>
+            <div className="text-[9px] font-mono font-bold transition-all duration-300" style={{ color: accentColor }}>{deckA.bpm}</div>
             <div className="text-[4px] text-slate-600">BPM</div>
           </div>
-          <div className="w-px h-6 bg-white/10" />
+          <div className="w-px h-6 transition-all duration-300" style={{ background: `${accentColor}40` }} />
           <div className="text-center flex-1">
             <div className="text-[5px] text-slate-600 uppercase font-bold">B</div>
-            <div className="text-[9px] text-indigo-400 font-mono font-bold">{deckB.bpm}</div>
+            <div className="text-[9px] font-mono font-bold transition-all duration-300" style={{ color: accentColor }}>{deckB.bpm}</div>
             <div className="text-[4px] text-slate-600">BPM</div>
           </div>
         </div>
@@ -205,29 +201,60 @@ export const Mixer: React.FC<MixerProps> = ({
       {/* Controls */}
       <div className="flex flex-col gap-1.5 w-full px-0.5 z-10">
         <button onClick={isRecording ? onStopRecording : onStartRecording}
-          className={`flex items-center justify-center gap-1 p-2 rounded-lg border transition-all active:scale-95 ${
-            isRecording ? 'bg-red-950/40 border-red-500 text-red-500' : 'bg-white/5 border-white/10 text-slate-400'}`}>
+          className="flex items-center justify-center gap-1 p-2 rounded-lg border transition-all active:scale-95"
+          style={isRecording ? {
+            background: 'rgba(239,68,68,0.2)',
+            borderColor: 'rgba(239,68,68,0.5)',
+            color: '#ef4444',
+          } : {
+            background: 'rgba(255,255,255,0.05)',
+            borderColor: 'rgba(255,255,255,0.1)',
+            color: '#94a3b8',
+          }}>
           {isRecording ? <Square size={10} fill="currentColor" /> : <Mic size={10} />}
           <span className="text-[6px] font-black uppercase hidden xs:inline">{isRecording ? 'Stop' : 'Rec'}</span>
         </button>
 
-        <button onClick={onSync} className="flex items-center justify-center gap-1 p-2 bg-white/5 border border-white/10 rounded-lg text-slate-400 hover:text-indigo-400 transition-all active:scale-95">
+        <button onClick={onSync}
+          className="flex items-center justify-center gap-1 p-2 rounded-lg border transition-all active:scale-95"
+          style={{
+            background: `${accentColor}10`,
+            borderColor: `${accentColor}30`,
+            color: accentColor,
+          }}>
           <Download size={10} />
           <span className="text-[6px] font-black uppercase hidden xs:inline">Sync</span>
         </button>
 
         <button onClick={aiMixActive ? stopAiMix : startAiMix}
-          className={`flex items-center justify-center gap-1 p-2 rounded-lg border transition-all active:scale-95 ${
-            aiMixActive ? 'bg-purple-600/30 border-purple-500/50 text-purple-300' : 'bg-indigo-600/10 border-indigo-500/20 text-indigo-400'}`}>
+          className="flex items-center justify-center gap-1 p-2 rounded-lg border transition-all active:scale-95"
+          style={aiMixActive ? {
+            background: `rgba(168,85,247,0.2)`,
+            borderColor: 'rgba(168,85,247,0.6)',
+            color: '#c084fc',
+            boxShadow: `0 0 12px rgba(168,85,247,0.4)`,
+          } : {
+            background: `rgba(168,85,247,0.08)`,
+            borderColor: `rgba(168,85,247,0.3)`,
+            color: '#a78bfa',
+          }}>
           <Zap size={10} className={aiMixActive ? 'animate-pulse' : ''} />
           <span className="text-[6px] font-black uppercase hidden xs:inline">{aiMixActive ? 'Stop' : 'AI Mix'}</span>
         </button>
 
         {/* ✨ MAGIC */}
         <motion.button onClick={startMagicMix} disabled={magicActive} whileTap={{ scale: 0.93 }}
-          className={`flex items-center justify-center gap-1 p-2 rounded-lg border transition-all ${
-            magicActive ? 'border-yellow-400/60 text-yellow-300 shadow-[0_0_16px_rgba(250,204,21,0.4)]'
-            : 'bg-gradient-to-r from-yellow-600/20 to-orange-600/20 border-yellow-500/40 text-yellow-400 hover:from-yellow-600/30'}`}>
+          className="flex items-center justify-center gap-1 p-2 rounded-lg border transition-all"
+          style={magicActive ? {
+            background: `rgba(250,204,21,0.2)`,
+            borderColor: 'rgba(250,204,21,0.6)',
+            color: '#fde047',
+            boxShadow: `0 0 16px rgba(250,204,21,0.5)`,
+          } : {
+            background: `linear-gradient(135deg, rgba(250,204,21,0.1), rgba(251,146,60,0.08))`,
+            borderColor: 'rgba(250,204,21,0.4)',
+            color: '#fbbf24',
+          }}>
           <Sparkles size={10} className={magicActive ? 'animate-spin' : ''} />
           <span className="text-[6px] font-black uppercase hidden xs:inline">
             {magicActive ? '✨ Magic...' : '✨ Magic'}
@@ -239,8 +266,19 @@ export const Mixer: React.FC<MixerProps> = ({
       <AnimatePresence>
         {status && (
           <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="w-full px-1 z-10">
-            <div className={`rounded-lg p-1 text-center border ${magicActive ? 'bg-yellow-600/20 border-yellow-500/30' : 'bg-purple-600/20 border-purple-500/30'}`}>
-              <p className={`text-[5px] font-bold leading-tight ${magicActive ? 'text-yellow-300' : 'text-purple-300'}`}>{status}</p>
+            <div
+              className="rounded-lg p-1 text-center border transition-all duration-300"
+              style={{
+                background: magicActive ? `rgba(250,204,21,0.15)` : `${accentColor}15`,
+                borderColor: magicActive ? `rgba(250,204,21,0.3)` : `${accentColor}40`,
+              }}
+            >
+              <p
+                className="text-[5px] font-bold leading-tight transition-all duration-300"
+                style={{ color: magicActive ? '#fde047' : accentColor }}
+              >
+                {status}
+              </p>
             </div>
           </motion.div>
         )}
@@ -252,7 +290,11 @@ export const Mixer: React.FC<MixerProps> = ({
           {[1,2].map(i => (
             <div key={i} className="w-1.5 h-full bg-black/40 rounded-full p-0.5 flex flex-col-reverse gap-0.5 border border-white/5">
               {[...Array(8)].map((_, j) => (
-                <div key={j} className={`w-full flex-1 rounded-[0.5px] ${j > 6 ? 'bg-red-500/40' : j > 4 ? 'bg-indigo-400/40' : 'bg-slate-800'}`} />
+                <div key={j}
+                  className="w-full flex-1 rounded-[0.5px] transition-all duration-300"
+                  style={{
+                    background: j > 6 ? 'rgba(239,68,68,0.5)' : j > 4 ? `${accentColor}50` : 'rgba(71,85,105,0.8)',
+                  }} />
               ))}
             </div>
           ))}
@@ -271,9 +313,16 @@ export const Mixer: React.FC<MixerProps> = ({
             onChange={(e) => onCrossfadeChange(parseFloat(e.target.value))}
             className="absolute w-full h-full opacity-0 cursor-pointer z-10" />
           <motion.div animate={{ left: `${crossfade * 100}%` }} transition={{ type: "spring", damping: 35, stiffness: 450 }}
-            className={`absolute -ml-3 w-6 h-5 rounded-md shadow-2xl flex items-center justify-center pointer-events-none border ${
-              magicActive ? 'bg-yellow-900/60 border-yellow-500/40' : 'bg-slate-800 border-white/10'}`}>
-            <div className={`h-3 w-0.5 rounded-full ${magicActive ? 'bg-yellow-400' : 'bg-indigo-500'}`} />
+            className="absolute -ml-3 w-6 h-5 rounded-md shadow-2xl flex items-center justify-center pointer-events-none border transition-all duration-300"
+            style={magicActive ? {
+              background: 'rgba(250,204,21,0.3)',
+              borderColor: 'rgba(250,204,21,0.6)',
+            } : {
+              background: 'rgba(30,30,30,0.8)',
+              borderColor: 'rgba(255,255,255,0.1)',
+            }}>
+            <div className="h-3 w-0.5 rounded-full transition-all duration-300"
+              style={{ background: magicActive ? '#fde047' : accentColor }} />
           </motion.div>
         </div>
       </div>
