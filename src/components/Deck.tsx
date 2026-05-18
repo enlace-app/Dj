@@ -17,10 +17,11 @@ interface DeckProps {
   onScratch: (timeOffset: number) => void;
   getVisualizerData: () => any;
   getFreqData?: () => any;
+  accentColor?: string;
 }
 
 export const Deck: React.FC<DeckProps> = ({
-  id, state, onLoad, onTogglePlay, onRateChange, onFilterChange, onFXChange, onEQChange, onScratch, getVisualizerData, getFreqData
+  id, state, onLoad, onTogglePlay, onRateChange, onFilterChange, onFXChange, onEQChange, onScratch, getVisualizerData, getFreqData, accentColor = '#6366f1'
 }) => {
   const [eq, setEq] = useState({ low: 0, mid: 0, high: 0 });
   const [hotcues, setHotcues] = useState<number[]>([]);
@@ -55,10 +56,17 @@ export const Deck: React.FC<DeckProps> = ({
   const hotcueColors = ['bg-pink-500', 'bg-yellow-500', 'bg-cyan-500', 'bg-green-500'];
 
   return (
-    <div className="flex flex-col h-full w-full bg-white/5 backdrop-blur-xl rounded-xl border border-white/10 overflow-hidden relative p-1.5 gap-1">
-
+    <div
+      className="flex flex-col h-full w-full backdrop-blur-xl rounded-xl overflow-hidden relative p-1.5 gap-1 transition-all duration-300"
+      style={{
+        background: `rgba(255,255,255,0.04)`,
+        border: `1px solid ${accentColor}30`,
+        boxShadow: `0 0 20px ${accentColor}10`,
+      }}
+    >
       {/* Marca de agua */}
-      <div className="absolute top-1 left-2 text-indigo-400 font-black italic opacity-10 text-2xl pointer-events-none select-none">
+      <div className="absolute top-1 left-2 font-black italic opacity-10 text-2xl pointer-events-none select-none transition-all duration-300"
+        style={{ color: accentColor }}>
         {id}
       </div>
 
@@ -68,10 +76,11 @@ export const Deck: React.FC<DeckProps> = ({
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="absolute top-8 left-1/2 -translate-x-1/2 bg-indigo-600/90 backdrop-blur-xl border border-indigo-400/50 px-3 py-1 rounded-xl z-20 flex items-center gap-1 w-[85%] shadow-lg"
+            className="absolute top-8 left-1/2 -translate-x-1/2 backdrop-blur-xl px-3 py-1 rounded-xl z-20 flex items-center gap-1 w-[85%] shadow-lg"
+            style={{ background: `${accentColor}e0`, border: `1px solid ${accentColor}80` }}
           >
             <Sparkles size={10} className="text-white animate-pulse shrink-0" />
-            <p className="text-[8px] text-indigo-100 font-bold truncate">{state.suggestedNext.suggestion}</p>
+            <p className="text-[8px] text-white font-bold truncate">{state.suggestedNext.suggestion}</p>
           </motion.div>
         )}
       </AnimatePresenceWrapper>
@@ -81,21 +90,18 @@ export const Deck: React.FC<DeckProps> = ({
         <span className="text-slate-500 font-mono text-[8px] tracking-widest uppercase font-bold">Ch. {id}</span>
         <div className="flex items-center gap-1.5">
           {state.bpm > 0 && state.isLoaded && (
-            <span className="text-[6px] text-slate-600 font-mono">{state.bpm} BPM</span>
+            <span className="text-[6px] font-mono font-bold transition-all duration-300" style={{ color: accentColor }}>{state.bpm} BPM</span>
           )}
-          <span className={`font-mono text-[8px] font-bold uppercase ${state.isPlaying ? 'text-indigo-400 animate-pulse' : 'text-slate-600'}`}>
+          <span className="font-mono text-[8px] font-bold uppercase transition-all duration-300"
+            style={{ color: state.isPlaying ? accentColor : '#475569' }}>
             {state.isPlaying ? '● PLAY' : '● STOP'}
           </span>
         </div>
       </div>
 
-      {/* Visualizador de frecuencias — barras que muestran el subidón */}
+      {/* Visualizador de frecuencias */}
       <div className="shrink-0 h-10 w-full rounded-lg overflow-hidden bg-black/30 border border-white/5">
-        <Visualizer
-          getData={getVisualizerData}
-          freqData={getFreqData}
-          mode="bars"
-        />
+        <Visualizer getData={getVisualizerData} freqData={getFreqData} mode="bars" />
       </div>
 
       {/* Plato */}
@@ -118,8 +124,9 @@ export const Deck: React.FC<DeckProps> = ({
         <div className="flex items-center gap-1">
           <span className="text-slate-400 font-mono text-[7px]">{formatTime(state.progress)}</span>
           {state.key && (
-            <div className="bg-indigo-500/20 px-1 py-0.5 rounded border border-indigo-500/40">
-              <span className="text-indigo-400 text-[7px] font-black">{state.key}</span>
+            <div className="px-1 py-0.5 rounded border transition-all duration-300"
+              style={{ background: `${accentColor}20`, borderColor: `${accentColor}40` }}>
+              <span className="text-[7px] font-black transition-all duration-300" style={{ color: accentColor }}>{state.key}</span>
             </div>
           )}
         </div>
@@ -136,11 +143,17 @@ export const Deck: React.FC<DeckProps> = ({
         <button
           onClick={onTogglePlay}
           disabled={!state.isLoaded}
-          className={`flex flex-col items-center justify-center gap-0.5 py-1.5 rounded-lg transition-all border active:scale-95 ${
-            state.isPlaying
-              ? 'bg-indigo-600 text-white border-indigo-400 shadow-[0_0_8px_rgba(79,70,229,0.4)]'
-              : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'
-          } disabled:opacity-50`}
+          className="flex flex-col items-center justify-center gap-0.5 py-1.5 rounded-lg transition-all border active:scale-95 disabled:opacity-50"
+          style={state.isPlaying ? {
+            background: accentColor,
+            borderColor: accentColor,
+            boxShadow: `0 0 10px ${accentColor}60`,
+            color: 'white',
+          } : {
+            background: 'rgba(255,255,255,0.05)',
+            borderColor: 'rgba(255,255,255,0.1)',
+            color: '#94a3b8',
+          }}
         >
           {state.isPlaying ? <Pause size={10} fill="currentColor" /> : <Play size={10} fill="currentColor" />}
           <span className="text-[6px] font-black uppercase">{state.isPlaying ? 'Stop' : 'Play'}</span>
@@ -171,10 +184,8 @@ export const Deck: React.FC<DeckProps> = ({
       <div className="shrink-0 px-1">
         <div className="flex justify-between items-center mb-0.5">
           <span className="text-[6px] text-slate-500 uppercase font-black">EQ</span>
-          <button
-            onClick={() => { setEq({ low: 0, mid: 0, high: 0 }); onEQChange(id, 0, 0, 0); }}
-            className="text-[5px] text-slate-600 hover:text-slate-400 uppercase font-bold"
-          >Reset</button>
+          <button onClick={() => { setEq({ low: 0, mid: 0, high: 0 }); onEQChange(id, 0, 0, 0); }}
+            className="text-[5px] text-slate-600 hover:text-slate-400 uppercase font-bold">Reset</button>
         </div>
         <div className="grid grid-cols-3 gap-1">
           {eqBands.map(({ label, band, color }) => (
@@ -196,7 +207,8 @@ export const Deck: React.FC<DeckProps> = ({
         <div className="flex justify-between items-center mb-0.5">
           <span className="text-[6px] text-slate-500 uppercase font-black">Hotcues</span>
           {hotcues.length < 4 && (
-            <button onClick={addHotcue} className="text-[5px] text-indigo-400 uppercase font-bold border border-indigo-500/30 px-1 rounded">
+            <button onClick={addHotcue} className="text-[5px] uppercase font-bold border px-1 rounded transition-all duration-300"
+              style={{ color: accentColor, borderColor: `${accentColor}40` }}>
               + Marcar
             </button>
           )}
@@ -218,15 +230,26 @@ export const Deck: React.FC<DeckProps> = ({
         <div className="flex-1">
           <div className="flex justify-between items-center mb-0.5">
             <span className="text-[6px] text-slate-500 uppercase font-black">Pitch</span>
-            <span className="text-[7px] text-indigo-400 font-mono">{(state.playbackRate * 100).toFixed(0)}%</span>
+            <span className="text-[7px] font-mono transition-all duration-300" style={{ color: accentColor }}>
+              {(state.playbackRate * 100).toFixed(0)}%
+            </span>
           </div>
           <input type="range" min="0.8" max="1.2" step="0.01" value={state.playbackRate}
             onChange={(e) => onRateChange(parseFloat(e.target.value))}
             className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500" />
         </div>
         <button onClick={() => setLoopActive(!loopActive)}
-          className={`shrink-0 px-2 py-1 rounded text-[6px] font-black uppercase border transition-all active:scale-95 ${
-            loopActive ? 'bg-green-500/20 text-green-400 border-green-500/40 shadow-[0_0_6px_rgba(34,197,94,0.3)]' : 'bg-white/5 text-slate-500 border-white/10'}`}>
+          className="shrink-0 px-2 py-1 rounded text-[6px] font-black uppercase border transition-all active:scale-95"
+          style={loopActive ? {
+            background: `${accentColor}20`,
+            color: accentColor,
+            borderColor: `${accentColor}50`,
+            boxShadow: `0 0 6px ${accentColor}40`,
+          } : {
+            background: 'rgba(255,255,255,0.03)',
+            color: '#475569',
+            borderColor: 'rgba(255,255,255,0.08)',
+          }}>
           {loopActive ? '⟳ Loop ON' : '⟳ Loop'}
         </button>
       </div>
