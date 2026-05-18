@@ -14,81 +14,65 @@ export interface DeckState {
   isLoaded: boolean;
   key?: string;
   suggestedNext?: { suggestion: string; tip: string };
+  energy: number; // 0-1 for reactive skin
 }
 
 async function detectBPM(audioBuffer: AudioBuffer): Promise<number> {
   try {
-    // Only analyze first 60 seconds for speed
     const sampleRate = audioBuffer.sampleRate;
     const maxSamples = Math.min(audioBuffer.length, sampleRate * 60);
     const offlineCtx = new OfflineAudioContext(1, maxSamples, sampleRate);
-    const source = offlineCtx.createBufferSource();
-
-    // Create a shorter buffer
     const shortBuffer = offlineCtx.createBuffer(1, maxSamples, sampleRate);
     shortBuffer.copyToChannel(audioBuffer.getChannelData(0).slice(0, maxSamples), 0);
+    const source = offlineCtx.createBufferSource();
     source.buffer = shortBuffer;
-
     const filter = offlineCtx.createBiquadFilter();
     filter.type = 'lowpass';
     filter.frequency.value = 150;
     source.connect(filter);
     filter.connect(offlineCtx.destination);
     source.start(0);
-
     const rendered = await offlineCtx.startRendering();
     const data = rendered.getChannelData(0);
-
     const windowSize = Math.floor(sampleRate * 0.02);
     const energies: number[] = [];
     for (let i = 0; i < data.length - windowSize; i += windowSize) {
-      let energy = 0;
-      for (let j = 0; j < windowSize; j++) energy += data[i + j] * data[i + j];
-      energies.push(energy / windowSize);
+      let e = 0;
+      for (let j = 0; j < windowSize; j++) e += data[i+j] * data[i+j];
+      energies.push(e / windowSize);
     }
-
-    const avg = energies.reduce((a, b) => a + b, 0) / energies.length;
+    const avg = energies.reduce((a,b) => a+b, 0) / energies.length;
     const threshold = avg * 1.5;
     const peaks: number[] = [];
     let lastPeak = -10;
-
     for (let i = 1; i < energies.length - 1; i++) {
-      if (energies[i] > threshold && energies[i] > energies[i-1] && energies[i] > energies[i+1]) {
-        if (i - lastPeak > 10) {
-          peaks.push(i * windowSize / sampleRate);
-          lastPeak = i;
-        }
+      if (energies[i] > threshold && energies[i] > energies[i-1] && energies[i] > energies[i+1] && i - lastPeak > 10) {
+        peaks.push(i * windowSize / sampleRate);
+        lastPeak = i;
       }
     }
-
     if (peaks.length < 4) return 120;
-
     const intervals: number[] = [];
     for (let i = 1; i < Math.min(peaks.length, 50); i++) intervals.push(peaks[i] - peaks[i-1]);
-    const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
-    let bpm = Math.round(60 / avgInterval);
-
-    // Normalize to 80-160 BPM range (more realistic)
+    let bpm = Math.round(60 / (intervals.reduce((a,b) => a+b,0) / intervals.length));
     while (bpm < 80) bpm *= 2;
     while (bpm > 160) bpm /= 2;
-
     return bpm;
-  } catch {
-    return 120;
-  }
+  } catch { return 120; }
 }
 
 export const useDJEngine = () => {
   const [deckA, setDeckA] = useState<DeckState>({
     isPlaying: false, bpm: 120, volume: 0, progress: 0, duration: 0,
-    fileName: 'No Track Loaded', isSyncing: false, playbackRate: 1, isLoaded: false, key: '1A',
+    fileName: 'No Track Loaded', isSyncing: false, playbackRate: 1, isLoaded: false, key: '1A', energy: 0,
   });
   const [deckB, setDeckB] = useState<DeckState>({
     isPlaying: false, bpm: 120, volume: 0, progress: 0, duration: 0,
-    fileName: 'No Track Loaded', isSyncing: false, playbackRate: 1, isLoaded: false, key: '2A',
+    fileName: 'No Track Loaded', isSyncing: false, playbackRate: 1, isLoaded: false, key: '2A', energy: 0,
   });
   const [crossfader, setCrossfader] = useState(0.5);
   const [isRecording, setIsRecording] = useState(false);
+  const [masterEnergy, setMasterEnergy] = useState(0); // 0-1 for reactive skin
 
   const playerA = useRef<Tone.Player | null>(null);
   const playerB = useRef<Tone.Player | null>(null);
@@ -98,6 +82,7 @@ export const useDJEngine = () => {
   const analyserB = useRef<Tone.Analyser | null>(null);
   const freqAnalyserA = useRef<Tone.Analyser | null>(null);
   const freqAnalyserB = useRef<Tone.Analyser | null>(null);
+  const masterAnalyser = useRef<Tone.Analyser | null>(null);
   const autoMixInterval = useRef<number | null>(null);
   const delayA = useRef<Tone.FeedbackDelay | null>(null);
   const delayB = useRef<Tone.FeedbackDelay | null>(null);
@@ -105,17 +90,26 @@ export const useDJEngine = () => {
   const filterB = useRef<Tone.Filter | null>(null);
   const eqA = useRef<Tone.EQ3 | null>(null);
   const eqB = useRef<Tone.EQ3 | null>(null);
-
-  // Smooth scratch — target position with interpolation
-  const scratchTargetA = useRef<number | null>(null);
-  const scratchTargetB = useRef<number | null>(null);
+  // Professional audio: limiter + compressor on master
+  const masterLimiter = useRef<Tone.Limiter | null>(null);
+  const masterCompressor = useRef<Tone.Compressor | null>(null);
 
   useEffect(() => {
-    crossfaderNode.current = new Tone.CrossFade(0.5).toDestination();
+    // Professional audio chain:
+    // Players → Filter → EQ → Crossfade → Compressor → Limiter → Destination
+    masterLimiter.current = new Tone.Limiter(-1).toDestination();
+    masterCompressor.current = new Tone.Compressor({
+      threshold: -18, ratio: 3, attack: 0.003, release: 0.1, knee: 6,
+    }).connect(masterLimiter.current);
+
+    crossfaderNode.current = new Tone.CrossFade(0.5).connect(masterCompressor.current);
+
     analyserA.current = new Tone.Analyser("waveform", 256);
     analyserB.current = new Tone.Analyser("waveform", 256);
     freqAnalyserA.current = new Tone.Analyser("fft", 64);
     freqAnalyserB.current = new Tone.Analyser("fft", 64);
+    masterAnalyser.current = new Tone.Analyser("fft", 32);
+    masterCompressor.current.connect(masterAnalyser.current);
 
     eqA.current = new Tone.EQ3(0, 0, 0).connect(crossfaderNode.current.a);
     filterA.current = new Tone.Filter(20000, "lowpass").connect(eqA.current);
@@ -136,9 +130,19 @@ export const useDJEngine = () => {
     playerB.current = new Tone.Player().connect(filterB.current);
 
     recorder.current = new Tone.Recorder();
-    Tone.Destination.connect(recorder.current);
+    masterLimiter.current.connect(recorder.current);
+
+    // Energy detection loop for reactive skin
+    const energyInterval = setInterval(() => {
+      if (masterAnalyser.current) {
+        const data = masterAnalyser.current.getValue() as Float32Array;
+        const avg = Array.from(data).reduce((a, b) => a + Math.max(0, (b as number + 100) / 100), 0) / data.length;
+        setMasterEnergy(Math.min(1, avg * 2));
+      }
+    }, 50);
 
     return () => {
+      clearInterval(energyInterval);
       playerA.current?.dispose();
       playerB.current?.dispose();
       crossfaderNode.current?.dispose();
@@ -150,6 +154,9 @@ export const useDJEngine = () => {
       analyserB.current?.dispose();
       freqAnalyserA.current?.dispose();
       freqAnalyserB.current?.dispose();
+      masterAnalyser.current?.dispose();
+      masterCompressor.current?.dispose();
+      masterLimiter.current?.dispose();
     };
   }, []);
 
@@ -159,32 +166,24 @@ export const useDJEngine = () => {
       const url = typeof track === 'string' ? track : URL.createObjectURL(track);
       const fileName = typeof track === 'string' ? track.split('/').pop() || 'Track' : track.name;
       const player = deck === 'A' ? playerA.current : playerB.current;
-
       if (player) {
         player.stop();
         const arrayBuffer = typeof track === 'string'
           ? await (await fetch(url, { mode: 'cors' })).arrayBuffer()
           : await track.arrayBuffer();
-
         const audioBuffer = await Tone.getContext().decodeAudioData(arrayBuffer);
         player.buffer = new Tone.ToneAudioBuffer(audioBuffer);
-
         const update = { fileName, duration: audioBuffer.duration, progress: 0, isPlaying: false, isLoaded: true };
         if (deck === 'A') setDeckA(prev => ({ ...prev, ...update }));
         else setDeckB(prev => ({ ...prev, ...update }));
-
-        // BPM detection
         detectBPM(audioBuffer).then(bpm => {
           if (deck === 'A') setDeckA(prev => ({ ...prev, bpm }));
           else setDeckB(prev => ({ ...prev, bpm }));
         });
-
-        // AI
         analyzeTrack(fileName).then(a => {
           if (deck === 'A') setDeckA(prev => ({ ...prev, key: a.key }));
           else setDeckB(prev => ({ ...prev, key: a.key }));
         }).catch(() => {});
-
         getDJAdvice(fileName).then(advice => {
           if (deck === 'A') setDeckA(prev => ({ ...prev, suggestedNext: advice }));
           else setDeckB(prev => ({ ...prev, suggestedNext: advice }));
@@ -220,49 +219,32 @@ export const useDJEngine = () => {
 
   const setPlaybackRate = useCallback((deck: 'A' | 'B', rate: number) => {
     const player = deck === 'A' ? playerA.current : playerB.current;
-    // Clamp rate to reasonable range
     const clamped = Math.max(0.8, Math.min(1.2, rate));
     if (player) player.playbackRate = clamped;
     if (deck === 'A') setDeckA(prev => ({ ...prev, playbackRate: clamped }));
     else setDeckB(prev => ({ ...prev, playbackRate: clamped }));
   }, []);
 
-  // SMOOTH SCRATCH — uses ramp instead of jump
   const seekTo = useCallback((deck: 'A' | 'B', time: number) => {
     const player = deck === 'A' ? playerA.current : playerB.current;
     if (player?.loaded) {
-      const duration = player.buffer.duration;
-      const safeTime = Math.max(0, Math.min(time, duration - 0.01));
-
-      // Store target, apply smoothly
-      if (deck === 'A') scratchTargetA.current = safeTime;
-      else scratchTargetB.current = safeTime;
-
+      const safeTime = Math.max(0, Math.min(time, player.buffer.duration - 0.01));
       const wasPlaying = player.state === 'started';
       player.stop();
-      // Small ramp time to avoid clicks
       setTimeout(() => {
         player.start(Tone.now() + 0.02, safeTime);
-        if (!wasPlaying) {
-          setTimeout(() => player.stop(), 50);
-        }
+        if (!wasPlaying) setTimeout(() => player.stop(), 50);
       }, 10);
-
       if (deck === 'A') setDeckA(prev => ({ ...prev, progress: safeTime }));
       else setDeckB(prev => ({ ...prev, progress: safeTime }));
     }
   }, []);
 
   const syncDecks = useCallback(() => {
-    const bpmA = deckA.bpm;
-    const bpmB = deckB.bpm;
-    if (bpmA > 0 && bpmB > 0) {
-      // Sync B to A — clamp to ±20% for natural sound
-      const rawRate = bpmA / bpmB;
-      const clamped = Math.max(0.8, Math.min(1.2, rawRate));
-      const player = playerB.current;
-      if (player) player.playbackRate = clamped;
-      setDeckB(prev => ({ ...prev, playbackRate: clamped }));
+    if (deckA.bpm > 0 && deckB.bpm > 0) {
+      const rate = Math.max(0.8, Math.min(1.2, deckA.bpm / deckB.bpm));
+      if (playerB.current) playerB.current.playbackRate = rate;
+      setDeckB(prev => ({ ...prev, playbackRate: rate }));
     }
   }, [deckA.bpm, deckB.bpm]);
 
@@ -304,7 +286,7 @@ export const useDJEngine = () => {
   }, [crossfader, handleCrossfade]);
 
   return {
-    deckA, deckB, crossfader, isRecording,
+    deckA, deckB, crossfader, isRecording, masterEnergy,
     analyserDataA: () => analyserA.current?.getValue(),
     analyserDataB: () => analyserB.current?.getValue(),
     freqDataA: () => freqAnalyserA.current?.getValue(),
