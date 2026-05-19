@@ -12,7 +12,7 @@ interface DeckProps {
   onTogglePlay: () => void;
   onRateChange: (rate: number) => void;
   onFilterChange: (freq: number) => void;
-  onFXChange: (type: 'delay' | 'dist', value: number) => void;
+  onFXChange: (type: 'delay' | 'reverb', value: number) => void;
   onEQChange: (deck: 'A' | 'B', low: number, mid: number, high: number) => void;
   onScratch: (timeOffset: number) => void;
   getVisualizerData: () => any;
@@ -160,9 +160,9 @@ export const Deck: React.FC<DeckProps> = ({
         </button>
 
         <button
-          onMouseDown={() => onFXChange('delay', 0.5)}
+          onMouseDown={() => onFXChange('delay', 0.6)}
           onMouseUp={() => onFXChange('delay', 0)}
-          onTouchStart={() => onFXChange('delay', 0.5)}
+          onTouchStart={() => onFXChange('delay', 0.6)}
           onTouchEnd={() => onFXChange('delay', 0)}
           className="flex flex-col items-center justify-center gap-0.5 bg-white/5 border border-white/10 py-1.5 rounded-lg text-slate-400 active:bg-indigo-500/20 active:border-indigo-500/50 transition-all"
         >
@@ -170,13 +170,13 @@ export const Deck: React.FC<DeckProps> = ({
         </button>
 
         <button
-          onMouseDown={() => onFXChange('dist', 1)}
-          onMouseUp={() => onFXChange('dist', 0)}
-          onTouchStart={() => onFXChange('dist', 1)}
-          onTouchEnd={() => onFXChange('dist', 0)}
+          onMouseDown={() => onFXChange('reverb', 0.7)}
+          onMouseUp={() => onFXChange('reverb', 0)}
+          onTouchStart={() => onFXChange('reverb', 0.7)}
+          onTouchEnd={() => onFXChange('reverb', 0)}
           className="flex flex-col items-center justify-center gap-0.5 bg-white/5 border border-white/10 py-1.5 rounded-lg text-slate-400 active:bg-orange-500/20 active:border-orange-500/50 transition-all"
         >
-          <span className="text-[6px] font-bold uppercase">Crush</span>
+          <span className="text-[6px] font-bold uppercase">Space</span>
         </button>
       </div>
 
