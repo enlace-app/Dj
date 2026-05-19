@@ -99,12 +99,6 @@ export const useDJEngine = () => {
   const masterLimiter = useRef<Tone.Limiter | null>(null);
   const masterCompressor = useRef<Tone.Compressor | null>(null);
 
-  // Scratch smoothing
-  const scratchTargetA = useRef(0);
-  const scratchTargetB = useRef(0);
-  const scratchInterpolationA = useRef<NodeJS.Timeout | null>(null);
-  const scratchInterpolationB = useRef<NodeJS.Timeout | null>(null);
-
   useEffect(() => {
     masterLimiter.current = new Tone.Limiter(-1).toDestination();
     masterCompressor.current = new Tone.Compressor({
@@ -120,7 +114,6 @@ export const useDJEngine = () => {
     masterAnalyser.current = new Tone.Analyser("fft", 32);
     masterCompressor.current.connect(masterAnalyser.current);
 
-    // Powerful reverbs
     reverbA.current = new Tone.Reverb({ decay: 2, wet: 0 }).connect(crossfaderNode.current.a);
     reverbB.current = new Tone.Reverb({ decay: 2, wet: 0 }).connect(crossfaderNode.current.b);
 
@@ -134,7 +127,6 @@ export const useDJEngine = () => {
     filterB.current.connect(analyserB.current);
     filterB.current.connect(freqAnalyserB.current);
 
-    // Powerful delay/echo
     delayA.current = new Tone.FeedbackDelay({
       delayTime: '8n',
       feedback: 0.4,
@@ -163,8 +155,6 @@ export const useDJEngine = () => {
 
     return () => {
       clearInterval(energyInterval);
-      if (scratchInterpolationA.current) clearInterval(scratchInterpolationA.current);
-      if (scratchInterpolationB.current) clearInterval(scratchInterpolationB.current);
       playerA.current?.dispose();
       playerB.current?.dispose();
       crossfaderNode.current?.dispose();
@@ -249,6 +239,7 @@ export const useDJEngine = () => {
     else setDeckB(prev => ({ ...prev, playbackRate: clamped }));
   }, []);
 
+  // SCRATCH — NO PAUSA, solo ajusta tiempo mantiendo playback
   const seekTo = useCallback((deck: 'A' | 'B', time: number) => {
     const player = deck === 'A' ? playerA.current : playerB.current;
     if (!player?.loaded) return;
@@ -256,27 +247,15 @@ export const useDJEngine = () => {
     const duration = player.buffer.duration;
     const safeTime = Math.max(0, Math.min(time, duration - 0.05));
 
-    // Store target for smooth interpolation
-    if (deck === 'A') scratchTargetA.current = safeTime;
-    else scratchTargetB.current = safeTime;
-
-    // Clear previous interpolation
-    if (deck === 'A' && scratchInterpolationA.current) clearInterval(scratchInterpolationA.current);
-    if (deck === 'B' && scratchInterpolationB.current) clearInterval(scratchInterpolationB.current);
-
-    // Smooth seek without stopping playback
-    const wasPlaying = player.state === 'started';
-    if (wasPlaying) {
-      player.stop();
-      player.start(Tone.now() + 0.01, safeTime);
-    } else {
-      player.start(Tone.now() + 0.01, safeTime);
-      player.stop('+0.05');
-    }
-
-    // Update UI position
+    // Solo actualizar UI, no cambiar playback
     if (deck === 'A') setDeckA(prev => ({ ...prev, progress: safeTime }));
     else setDeckB(prev => ({ ...prev, progress: safeTime }));
+
+    // Si está tocando, re-iniciar desde la nueva posición SIN pausar
+    if (player.state === 'started') {
+      player.stop();
+      player.start(Tone.now() + 0.005, safeTime); // Mínimo delay para evitar clicks
+    }
   }, []);
 
   const syncDecks = useCallback(() => {
