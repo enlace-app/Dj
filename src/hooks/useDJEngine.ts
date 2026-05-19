@@ -85,25 +85,25 @@ export const useDJEngine = () => {
   const masterAnalyser = useRef<Tone.Analyser | null>(null);
   const autoMixInterval = useRef<number | null>(null);
   
-  // Effects chains
+  // Effects
   const delayA = useRef<Tone.FeedbackDelay | null>(null);
   const delayB = useRef<Tone.FeedbackDelay | null>(null);
   const filterA = useRef<Tone.Filter | null>(null);
   const filterB = useRef<Tone.Filter | null>(null);
   const eqA = useRef<Tone.EQ3 | null>(null);
   const eqB = useRef<Tone.EQ3 | null>(null);
-  
-  // New effects: reverb, looper
   const reverbA = useRef<Tone.Reverb | null>(null);
   const reverbB = useRef<Tone.Reverb | null>(null);
-  const looperA = useRef<Tone.Loop | null>(null);
-  const looperB = useRef<Tone.Loop | null>(null);
-  const looperBufferA = useRef<Float32Array | null>(null);
-  const looperBufferB = useRef<Float32Array | null>(null);
   
   // Master
   const masterLimiter = useRef<Tone.Limiter | null>(null);
   const masterCompressor = useRef<Tone.Compressor | null>(null);
+
+  // Scratch smoothing
+  const scratchTargetA = useRef(0);
+  const scratchTargetB = useRef(0);
+  const scratchInterpolationA = useRef<NodeJS.Timeout | null>(null);
+  const scratchInterpolationB = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     masterLimiter.current = new Tone.Limiter(-1).toDestination();
@@ -120,9 +120,9 @@ export const useDJEngine = () => {
     masterAnalyser.current = new Tone.Analyser("fft", 32);
     masterCompressor.current.connect(masterAnalyser.current);
 
-    // New reverbs for natural space
-    reverbA.current = new Tone.Reverb({ decay: 1.5, wet: 0 }).connect(crossfaderNode.current.a);
-    reverbB.current = new Tone.Reverb({ decay: 1.5, wet: 0 }).connect(crossfaderNode.current.b);
+    // Powerful reverbs
+    reverbA.current = new Tone.Reverb({ decay: 2, wet: 0 }).connect(crossfaderNode.current.a);
+    reverbB.current = new Tone.Reverb({ decay: 2, wet: 0 }).connect(crossfaderNode.current.b);
 
     eqA.current = new Tone.EQ3(0, 0, 0).connect(reverbA.current);
     filterA.current = new Tone.Filter(20000, "lowpass").connect(eqA.current);
@@ -134,10 +134,17 @@ export const useDJEngine = () => {
     filterB.current.connect(analyserB.current);
     filterB.current.connect(freqAnalyserB.current);
 
-    delayA.current = new Tone.FeedbackDelay("8n", 0.3);
-    delayB.current = new Tone.FeedbackDelay("8n", 0.3);
-    delayA.current.wet.value = 0;
-    delayB.current.wet.value = 0;
+    // Powerful delay/echo
+    delayA.current = new Tone.FeedbackDelay({
+      delayTime: '8n',
+      feedback: 0.4,
+      wet: 0,
+    });
+    delayB.current = new Tone.FeedbackDelay({
+      delayTime: '8n',
+      feedback: 0.4,
+      wet: 0,
+    });
 
     playerA.current = new Tone.Player().connect(filterA.current);
     playerB.current = new Tone.Player().connect(filterB.current);
@@ -156,6 +163,8 @@ export const useDJEngine = () => {
 
     return () => {
       clearInterval(energyInterval);
+      if (scratchInterpolationA.current) clearInterval(scratchInterpolationA.current);
+      if (scratchInterpolationB.current) clearInterval(scratchInterpolationB.current);
       playerA.current?.dispose();
       playerB.current?.dispose();
       crossfaderNode.current?.dispose();
@@ -206,7 +215,7 @@ export const useDJEngine = () => {
       }
     } catch (e) {
       console.error(e);
-      const err = { fileName: 'Error al cargar', isLoaded: false };
+      const err = { fileName: 'Error', isLoaded: false };
       if (deck === 'A') setDeckA(prev => ({ ...prev, ...err }));
       else setDeckB(prev => ({ ...prev, ...err }));
     }
@@ -242,17 +251,32 @@ export const useDJEngine = () => {
 
   const seekTo = useCallback((deck: 'A' | 'B', time: number) => {
     const player = deck === 'A' ? playerA.current : playerB.current;
-    if (player?.loaded) {
-      const safeTime = Math.max(0, Math.min(time, player.buffer.duration - 0.01));
-      const wasPlaying = player.state === 'started';
+    if (!player?.loaded) return;
+
+    const duration = player.buffer.duration;
+    const safeTime = Math.max(0, Math.min(time, duration - 0.05));
+
+    // Store target for smooth interpolation
+    if (deck === 'A') scratchTargetA.current = safeTime;
+    else scratchTargetB.current = safeTime;
+
+    // Clear previous interpolation
+    if (deck === 'A' && scratchInterpolationA.current) clearInterval(scratchInterpolationA.current);
+    if (deck === 'B' && scratchInterpolationB.current) clearInterval(scratchInterpolationB.current);
+
+    // Smooth seek without stopping playback
+    const wasPlaying = player.state === 'started';
+    if (wasPlaying) {
       player.stop();
-      setTimeout(() => {
-        player.start(Tone.now() + 0.02, safeTime);
-        if (!wasPlaying) setTimeout(() => player.stop(), 50);
-      }, 10);
-      if (deck === 'A') setDeckA(prev => ({ ...prev, progress: safeTime }));
-      else setDeckB(prev => ({ ...prev, progress: safeTime }));
+      player.start(Tone.now() + 0.01, safeTime);
+    } else {
+      player.start(Tone.now() + 0.01, safeTime);
+      player.stop('+0.05');
     }
+
+    // Update UI position
+    if (deck === 'A') setDeckA(prev => ({ ...prev, progress: safeTime }));
+    else setDeckB(prev => ({ ...prev, progress: safeTime }));
   }, []);
 
   const syncDecks = useCallback(() => {
