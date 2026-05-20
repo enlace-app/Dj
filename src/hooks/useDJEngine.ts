@@ -46,14 +46,14 @@ async function detectBPM(audioBuffer: AudioBuffer): Promise<number> {
     const peaks: number[] = [];
     let lastPeak = -10;
     for (let i = 1; i < energies.length - 1; i++) {
-      if (energies[i] > threshold && energies[i] > energies[i - 1] && energies[i] > energies[i + 1] && i - lastPeak > 10) {
+      if (energies[i] > threshold && energies[i] > energies[i-1] && energies[i] > energies[i+1] && i - lastPeak > 10) {
         peaks.push(i * windowSize / sampleRate);
         lastPeak = i;
       }
     }
     if (peaks.length < 4) return 120;
     const intervals: number[] = [];
-    for (let i = 1; i < Math.min(peaks.length, 50); i++) intervals.push(peaks[i] - peaks[i - 1]);
+    for (let i = 1; i < Math.min(peaks.length, 50); i++) intervals.push(peaks[i] - peaks[i-1]);
     let bpm = Math.round(60 / (intervals.reduce((a, b) => a + b, 0) / intervals.length));
     while (bpm < 80) bpm *= 2;
     while (bpm > 160) bpm /= 2;
@@ -85,30 +85,32 @@ export const useDJEngine = () => {
   const masterAnalyser = useRef<Tone.Analyser | null>(null);
   const autoMixInterval = useRef<number | null>(null);
 
+  // Effects — wet=0 by default, no interference
   const delayA = useRef<Tone.FeedbackDelay | null>(null);
   const delayB = useRef<Tone.FeedbackDelay | null>(null);
+  const reverbA = useRef<Tone.Reverb | null>(null);
+  const reverbB = useRef<Tone.Reverb | null>(null);
   const filterA = useRef<Tone.Filter | null>(null);
   const filterB = useRef<Tone.Filter | null>(null);
   const eqA = useRef<Tone.EQ3 | null>(null);
   const eqB = useRef<Tone.EQ3 | null>(null);
-  const reverbA = useRef<Tone.Reverb | null>(null);
-  const reverbB = useRef<Tone.Reverb | null>(null);
   const masterLimiter = useRef<Tone.Limiter | null>(null);
   const masterCompressor = useRef<Tone.Compressor | null>(null);
 
-  // Track current position for scratch
+  // Track position refs — never go stale
   const posA = useRef(0);
   const posB = useRef(0);
   const isPlayingA = useRef(false);
   const isPlayingB = useRef(false);
 
   useEffect(() => {
-    masterLimiter.current = new Tone.Limiter(-1).toDestination();
+    masterLimiter.current = new Tone.Limiter(-2).toDestination();
     masterCompressor.current = new Tone.Compressor({
-      threshold: -18, ratio: 3, attack: 0.003, release: 0.1, knee: 6,
+      threshold: -20, ratio: 4, attack: 0.005, release: 0.15, knee: 8,
     }).connect(masterLimiter.current);
 
     crossfaderNode.current = new Tone.CrossFade(0.5).connect(masterCompressor.current);
+    masterCompressor.current.connect(new Tone.Analyser('fft', 32).set({}));
 
     analyserA.current = new Tone.Analyser('waveform', 256);
     analyserB.current = new Tone.Analyser('waveform', 256);
@@ -117,6 +119,8 @@ export const useDJEngine = () => {
     masterAnalyser.current = new Tone.Analyser('fft', 32);
     masterCompressor.current.connect(masterAnalyser.current);
 
+    // Clean chain: Player → EQ → Filter → Reverb(wet=0) → Crossfade
+    // Delay connected in parallel via send, wet=0 by default
     reverbA.current = new Tone.Reverb({ decay: 2.5, wet: 0 }).connect(crossfaderNode.current.a);
     reverbB.current = new Tone.Reverb({ decay: 2.5, wet: 0 }).connect(crossfaderNode.current.b);
 
@@ -130,11 +134,14 @@ export const useDJEngine = () => {
     filterB.current.connect(analyserB.current);
     filterB.current.connect(freqAnalyserB.current);
 
-    delayA.current = new Tone.FeedbackDelay({ delayTime: '8n', feedback: 0.45, wet: 0 }).connect(filterA.current);
-    delayB.current = new Tone.FeedbackDelay({ delayTime: '8n', feedback: 0.45, wet: 0 }).connect(filterB.current);
+    // Delay as parallel send — no interference with main signal
+    delayA.current = new Tone.FeedbackDelay({ delayTime: 0.25, feedback: 0.35, wet: 0 }).connect(crossfaderNode.current.a);
+    delayB.current = new Tone.FeedbackDelay({ delayTime: 0.25, feedback: 0.35, wet: 0 }).connect(crossfaderNode.current.b);
 
-    playerA.current = new Tone.Player().connect(filterA.current);
-    playerB.current = new Tone.Player().connect(filterB.current);
+    playerA.current = new Tone.Player({ fadeIn: 0.01, fadeOut: 0.01 }).connect(filterA.current);
+    playerB.current = new Tone.Player({ fadeIn: 0.01, fadeOut: 0.01 }).connect(filterB.current);
+    playerA.current.connect(delayA.current);
+    playerB.current.connect(delayB.current);
 
     recorder.current = new Tone.Recorder();
     masterLimiter.current.connect(recorder.current);
@@ -145,7 +152,7 @@ export const useDJEngine = () => {
         const avg = Array.from(data).reduce((a, b) => a + Math.max(0, (b as number + 100) / 100), 0) / data.length;
         setMasterEnergy(Math.min(1, avg * 2));
       }
-    }, 50);
+    }, 60);
 
     return () => {
       clearInterval(energyInterval);
@@ -154,6 +161,8 @@ export const useDJEngine = () => {
       crossfaderNode.current?.dispose();
       filterA.current?.dispose();
       filterB.current?.dispose();
+      eqA.current?.dispose();
+      eqB.current?.dispose();
       delayA.current?.dispose();
       delayB.current?.dispose();
       reverbA.current?.dispose();
@@ -199,24 +208,21 @@ export const useDJEngine = () => {
           else setDeckB(prev => ({ ...prev, suggestedNext: advice }));
         }).catch(() => {});
       }
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
   }, []);
 
   const togglePlay = useCallback((deck: 'A' | 'B') => {
     const player = deck === 'A' ? playerA.current : playerB.current;
     const pos = deck === 'A' ? posA.current : posB.current;
-    if (player?.loaded) {
-      if (player.state === 'started') {
-        player.stop();
-        if (deck === 'A') { isPlayingA.current = false; setDeckA(prev => ({ ...prev, isPlaying: false })); }
-        else { isPlayingB.current = false; setDeckB(prev => ({ ...prev, isPlaying: false })); }
-      } else {
-        player.start(Tone.now(), pos);
-        if (deck === 'A') { isPlayingA.current = true; setDeckA(prev => ({ ...prev, isPlaying: true })); }
-        else { isPlayingB.current = true; setDeckB(prev => ({ ...prev, isPlaying: true })); }
-      }
+    if (!player?.loaded) return;
+    if (player.state === 'started') {
+      player.stop();
+      if (deck === 'A') { isPlayingA.current = false; setDeckA(p => ({ ...p, isPlaying: false })); }
+      else { isPlayingB.current = false; setDeckB(p => ({ ...p, isPlaying: false })); }
+    } else {
+      player.start(Tone.now(), pos);
+      if (deck === 'A') { isPlayingA.current = true; setDeckA(p => ({ ...p, isPlaying: true })); }
+      else { isPlayingB.current = true; setDeckB(p => ({ ...p, isPlaying: true })); }
     }
   }, []);
 
@@ -229,45 +235,58 @@ export const useDJEngine = () => {
     const player = deck === 'A' ? playerA.current : playerB.current;
     const clamped = Math.max(0.8, Math.min(1.2, rate));
     if (player) player.playbackRate = clamped;
-    if (deck === 'A') setDeckA(prev => ({ ...prev, playbackRate: clamped }));
-    else setDeckB(prev => ({ ...prev, playbackRate: clamped }));
+    if (deck === 'A') setDeckA(p => ({ ...p, playbackRate: clamped }));
+    else setDeckB(p => ({ ...p, playbackRate: clamped }));
   }, []);
 
-  // SEEK TO: posición absoluta (click en vinilo)
+  // SEEK TO absolute position (hotcues, click)
   const seekTo = useCallback((deck: 'A' | 'B', time: number) => {
     const player = deck === 'A' ? playerA.current : playerB.current;
-    const isPlaying = deck === 'A' ? isPlayingA.current : isPlayingB.current;
+    const playing = deck === 'A' ? isPlayingA.current : isPlayingB.current;
     if (!player?.loaded) return;
     const safeTime = Math.max(0, Math.min(time, player.buffer.duration - 0.05));
     if (deck === 'A') posA.current = safeTime;
     else posB.current = safeTime;
     if (player.state === 'started') player.stop();
-    if (isPlaying) player.start(Tone.now() + 0.01, safeTime);
-    if (deck === 'A') setDeckA(prev => ({ ...prev, progress: safeTime }));
-    else setDeckB(prev => ({ ...prev, progress: safeTime }));
+    if (playing) player.start(Tone.now() + 0.01, safeTime);
+    if (deck === 'A') setDeckA(p => ({ ...p, progress: safeTime }));
+    else setDeckB(p => ({ ...p, progress: safeTime }));
   }, []);
 
-  // SCRATCH: delta relativo, no reinicia desde 0
+  // SCRATCH — NEVER stops music permanently, always restarts
   const scratch = useCallback((deck: 'A' | 'B', delta: number) => {
     const player = deck === 'A' ? playerA.current : playerB.current;
-    const isPlaying = deck === 'A' ? isPlayingA.current : isPlayingB.current;
+    const playing = deck === 'A' ? isPlayingA.current : isPlayingB.current;
     if (!player?.loaded) return;
-    const currentPos = player.state === 'started' ? player.seconds : (deck === 'A' ? posA.current : posB.current);
-    const newPos = Math.max(0, Math.min(currentPos + delta, player.buffer.duration - 0.05));
+
+    // Get current position
+    const cur = player.state === 'started'
+      ? player.seconds
+      : (deck === 'A' ? posA.current : posB.current);
+    const newPos = Math.max(0, Math.min(cur + delta, player.buffer.duration - 0.05));
+
+    // Update stored position
     if (deck === 'A') posA.current = newPos;
     else posB.current = newPos;
+
+    // Always restart from new position — if was playing, keep playing
     if (player.state === 'started') player.stop();
-    player.start(Tone.now() + 0.005, newPos);
-    if (!isPlaying) player.stop(Tone.now() + 0.06);
-    if (deck === 'A') setDeckA(prev => ({ ...prev, progress: newPos }));
-    else setDeckB(prev => ({ ...prev, progress: newPos }));
+    player.start(Tone.now() + 0.004, newPos);
+
+    // If NOT playing, stop after tiny snippet (scratch sound)
+    if (!playing) {
+      player.stop(Tone.now() + 0.08);
+    }
+
+    if (deck === 'A') setDeckA(p => ({ ...p, progress: newPos }));
+    else setDeckB(p => ({ ...p, progress: newPos }));
   }, []);
 
   const syncDecks = useCallback(() => {
     if (deckA.bpm > 0 && deckB.bpm > 0) {
       const rate = Math.max(0.8, Math.min(1.2, deckA.bpm / deckB.bpm));
       if (playerB.current) playerB.current.playbackRate = rate;
-      setDeckB(prev => ({ ...prev, playbackRate: rate }));
+      setDeckB(p => ({ ...p, playbackRate: rate }));
     }
   }, [deckA.bpm, deckB.bpm]);
 
@@ -331,13 +350,10 @@ export const useDJEngine = () => {
       if (eq) { eq.low.value = low; eq.mid.value = mid; eq.high.value = high; }
     },
     setFX: (deck: 'A' | 'B', type: 'delay' | 'reverb', value: number) => {
-      if (type === 'delay') {
-        const fx = deck === 'A' ? delayA.current : delayB.current;
-        if (fx) fx.wet.value = value;
-      } else {
-        const fx = deck === 'A' ? reverbA.current : reverbB.current;
-        if (fx) fx.wet.value = value;
-      }
+      const fx = type === 'delay'
+        ? (deck === 'A' ? delayA.current : delayB.current)
+        : (deck === 'A' ? reverbA.current : reverbB.current);
+      if (fx) fx.wet.value = value;
     },
   };
 };
