@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Pause, Upload, Sparkles } from 'lucide-react';
-import { motion } from 'motion/react';
+import { Play, Pause, Upload } from 'lucide-react';
 import { Turntable } from './Turntable';
 import { Visualizer } from './Visualizer';
 import { DeckState } from '../hooks/useDJEngine';
@@ -36,11 +35,7 @@ export const Deck: React.FC<DeckProps> = ({
     if (e.target.files?.[0]) onLoad(e.target.files[0]);
   };
 
-  const formatTime = (s: number) => {
-    const m = Math.floor(s / 60);
-    const sec = Math.floor(s % 60);
-    return `${m}:${sec.toString().padStart(2, '0')}`;
-  };
+  const fmt = (s: number) => `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, '0')}`;
 
   const handleEQ = (band: 'low' | 'mid' | 'high', value: number) => {
     const next = { ...eq, [band]: value };
@@ -48,180 +43,108 @@ export const Deck: React.FC<DeckProps> = ({
     onEQChange(id, next.low, next.mid, next.high);
   };
 
-  const toggleEcho = () => {
-    const next = !echoOn;
-    setEchoOn(next);
-    onFXChange('delay', next ? 0.65 : 0);
-  };
+  const toggleEcho = () => { const n = !echoOn; setEchoOn(n); onFXChange('delay', n ? 0.65 : 0); };
+  const toggleSpace = () => { const n = !spaceOn; setSpaceOn(n); onFXChange('reverb', n ? 0.7 : 0); };
 
-  const toggleSpace = () => {
-    const next = !spaceOn;
-    setSpaceOn(next);
-    onFXChange('reverb', next ? 0.7 : 0);
-  };
-
-  const markHotcue = (i: number) => {
-    const next = [...hotcues];
-    next[i] = state.progress;
-    setHotcues(next);
-  };
-
-  const jumpHotcue = (i: number) => {
-    if (hotcues[i] !== null) onSeekTo(hotcues[i]!);
-  };
-
-  const hotcueColors = [
-    { bg: 'bg-pink-500', glow: '#ec4899' },
-    { bg: 'bg-yellow-500', glow: '#eab308' },
-    { bg: 'bg-cyan-500', glow: '#06b6d4' },
-    { bg: 'bg-green-500', glow: '#22c55e' },
-  ];
+  const hotcueColors = ['bg-pink-500', 'bg-yellow-400', 'bg-cyan-500', 'bg-green-500'];
+  const hotcueGlow = ['#ec4899', '#eab308', '#06b6d4', '#22c55e'];
 
   return (
-    <div
-      className="flex flex-col h-full w-full rounded-xl overflow-hidden relative transition-all duration-300"
-      style={{
-        background: 'rgba(10,10,20,0.85)',
-        border: `1px solid ${accentColor}35`,
-        boxShadow: `0 0 24px ${accentColor}12`,
-      }}
-    >
-      {/* TOP ROW: header + visualizer */}
-      <div className="shrink-0 px-2 pt-1.5 pb-0.5 flex items-center justify-between">
-        <span className="font-mono text-[8px] tracking-widest uppercase font-black text-slate-500">Ch.{id}</span>
+    <div className="flex flex-col h-full w-full rounded-xl overflow-hidden"
+      style={{ background: 'rgba(8,8,18,0.92)', border: `1px solid ${accentColor}30` }}>
+
+      {/* Header — 1 line */}
+      <div className="flex items-center justify-between px-2 py-1 shrink-0 border-b border-white/5">
+        <span className="font-mono text-[7px] tracking-widest uppercase font-black text-slate-500">Ch.{id}</span>
         <div className="flex items-center gap-2">
-          {state.isLoaded && (
-            <span className="text-[6px] font-mono font-bold" style={{ color: accentColor }}>{state.bpm} BPM</span>
-          )}
-          <span className="text-[7px] font-black font-mono uppercase"
-            style={{ color: state.isPlaying ? accentColor : '#374151' }}>
+          {state.isLoaded && <span className="text-[6px] font-mono font-bold" style={{ color: accentColor }}>{state.bpm} BPM</span>}
+          <span className="text-[7px] font-black font-mono" style={{ color: state.isPlaying ? accentColor : '#374151' }}>
             {state.isPlaying ? '▶ PLAY' : '■ STOP'}
           </span>
         </div>
       </div>
 
       {/* Freq bars */}
-      <div className="shrink-0 h-8 mx-2 rounded overflow-hidden bg-black/40 border border-white/5">
+      <div className="h-7 mx-1.5 mt-1 rounded overflow-hidden bg-black/40 border border-white/5 shrink-0">
         <Visualizer getData={getVisualizerData} freqData={getFreqData} mode="bars" />
       </div>
 
-      {/* MIDDLE ROW: turntable + controls side by side */}
-      <div className="flex-1 flex flex-row gap-1 px-1 py-1 min-h-0 items-center">
+      {/* Main area: turntable LEFT + controls RIGHT */}
+      <div className="flex-1 flex flex-row min-h-0 px-1 py-1 gap-1.5 items-stretch">
 
-        {/* Turntable — lado izquierdo */}
-        <div className="flex items-center justify-center shrink-0">
+        {/* Turntable — tamaño fijo pequeño */}
+        <div className="flex flex-col items-center justify-center shrink-0 gap-1">
           <Turntable
             isPlaying={state.isPlaying}
             progress={state.progress}
             duration={state.duration}
             playbackRate={state.playbackRate}
-            onTogglePlay={onTogglePlay}
-            onSeekTo={onSeekTo}
             onScratch={onScratch}
           />
         </div>
 
-        {/* Controles — lado derecho del plato */}
-        <div className="flex-1 flex flex-col gap-1 min-h-0 justify-between">
+        {/* Controls — fill remaining space */}
+        <div className="flex-1 flex flex-col gap-1 min-w-0 justify-between">
 
-          {/* Nombre de pista */}
-          <div className="bg-black/30 px-1.5 py-0.5 rounded border border-white/5 flex justify-between items-center">
-            <p className="text-white text-[7px] font-semibold truncate uppercase max-w-[70%]">
+          {/* Track name + time */}
+          <div className="flex items-center justify-between bg-black/30 px-1.5 py-0.5 rounded border border-white/5">
+            <p className="text-[6px] text-white font-semibold truncate uppercase flex-1 mr-1">
               {state.fileName === 'No Track Loaded' ? 'Sin pista' : state.fileName}
             </p>
-            <div className="flex items-center gap-1">
-              <span className="text-slate-500 font-mono text-[6px]">{formatTime(state.progress)}</span>
-              {state.key && (
-                <span className="text-[6px] font-black px-0.5 rounded"
-                  style={{ color: accentColor, background: `${accentColor}20` }}>{state.key}</span>
-              )}
+            <div className="flex items-center gap-1 shrink-0">
+              <span className="text-[5px] text-slate-500 font-mono">{fmt(state.progress)}</span>
+              {state.key && <span className="text-[5px] font-black px-0.5 rounded" style={{ color: accentColor, background: `${accentColor}20` }}>{state.key}</span>}
             </div>
           </div>
 
-          {/* Botones principales: Load + Play */}
+          {/* Load + Play */}
           <div className="grid grid-cols-2 gap-1">
-            <label className="flex items-center justify-center gap-1 bg-white/5 border border-white/10 py-1 rounded-lg cursor-pointer active:scale-95 transition-all">
-              <Upload size={9} className="text-slate-400" />
+            <label className="flex items-center justify-center gap-1 bg-white/5 border border-white/10 py-1 rounded cursor-pointer active:scale-95">
+              <Upload size={8} className="text-slate-400 shrink-0" />
               <span className="text-[6px] text-slate-300 font-black uppercase">Load</span>
               <input type="file" accept="audio/*" className="hidden" onChange={handleFileChange} />
             </label>
-            <button
-              onClick={onTogglePlay}
-              disabled={!state.isLoaded}
-              className="flex items-center justify-center gap-1 py-1 rounded-lg transition-all border active:scale-95 disabled:opacity-40"
-              style={state.isPlaying ? {
-                background: accentColor,
-                borderColor: accentColor,
-                boxShadow: `0 0 8px ${accentColor}60`,
-              } : {
-                background: 'rgba(255,255,255,0.05)',
-                borderColor: 'rgba(255,255,255,0.1)',
-              }}
-            >
+            <button onClick={onTogglePlay} disabled={!state.isLoaded}
+              className="flex items-center justify-center gap-1 py-1 rounded border active:scale-95 disabled:opacity-40 transition-all"
+              style={state.isPlaying ? { background: accentColor, borderColor: accentColor, boxShadow: `0 0 6px ${accentColor}60` }
+                : { background: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)' }}>
               {state.isPlaying
-                ? <Pause size={9} fill="white" className="text-white" />
-                : <Play size={9} fill="#94a3b8" className="text-slate-400" />}
-              <span className="text-[6px] font-black uppercase"
-                style={{ color: state.isPlaying ? 'white' : '#94a3b8' }}>
+                ? <Pause size={8} fill="white" className="text-white shrink-0" />
+                : <Play size={8} fill="#94a3b8" className="text-slate-400 shrink-0" />}
+              <span className="text-[6px] font-black uppercase" style={{ color: state.isPlaying ? 'white' : '#94a3b8' }}>
                 {state.isPlaying ? 'Stop' : 'Play'}
               </span>
             </button>
           </div>
 
-          {/* FX: Echo + Space — toggle on/off */}
+          {/* FX */}
           <div className="grid grid-cols-2 gap-1">
-            <button
-              onClick={toggleEcho}
-              className="flex items-center justify-center gap-1 py-1 rounded-lg border transition-all active:scale-95"
-              style={echoOn ? {
-                background: 'rgba(99,102,241,0.25)',
-                borderColor: 'rgba(99,102,241,0.6)',
-                color: '#818cf8',
-                boxShadow: '0 0 8px rgba(99,102,241,0.4)',
-              } : {
-                background: 'rgba(255,255,255,0.04)',
-                borderColor: 'rgba(255,255,255,0.08)',
-                color: '#64748b',
-              }}
-            >
-              <span className="text-[6px] font-black uppercase">🔁 Echo</span>
+            <button onClick={toggleEcho} className="py-0.5 rounded border text-[6px] font-black uppercase transition-all active:scale-95"
+              style={echoOn ? { background: 'rgba(99,102,241,0.25)', borderColor: '#6366f1', color: '#818cf8', boxShadow: '0 0 6px rgba(99,102,241,0.4)' }
+                : { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)', color: '#475569' }}>
+              🔁 Echo
             </button>
-            <button
-              onClick={toggleSpace}
-              className="flex items-center justify-center gap-1 py-1 rounded-lg border transition-all active:scale-95"
-              style={spaceOn ? {
-                background: 'rgba(168,85,247,0.25)',
-                borderColor: 'rgba(168,85,247,0.6)',
-                color: '#c084fc',
-                boxShadow: '0 0 8px rgba(168,85,247,0.4)',
-              } : {
-                background: 'rgba(255,255,255,0.04)',
-                borderColor: 'rgba(255,255,255,0.08)',
-                color: '#64748b',
-              }}
-            >
-              <span className="text-[6px] font-black uppercase">🌌 Space</span>
+            <button onClick={toggleSpace} className="py-0.5 rounded border text-[6px] font-black uppercase transition-all active:scale-95"
+              style={spaceOn ? { background: 'rgba(168,85,247,0.25)', borderColor: '#a855f7', color: '#c084fc', boxShadow: '0 0 6px rgba(168,85,247,0.4)' }
+                : { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)', color: '#475569' }}>
+              🌌 Space
             </button>
           </div>
 
-          {/* EQ compacto */}
+          {/* EQ */}
           <div>
-            <div className="flex justify-between items-center mb-0.5">
+            <div className="flex justify-between mb-0.5">
               <span className="text-[5px] text-slate-600 uppercase font-black">EQ</span>
               <button onClick={() => { setEq({ low: 0, mid: 0, high: 0 }); onEQChange(id, 0, 0, 0); }}
-                className="text-[5px] text-slate-700 hover:text-slate-400 uppercase">Reset</button>
+                className="text-[4px] text-slate-700 hover:text-slate-400 uppercase">Reset</button>
             </div>
             <div className="grid grid-cols-3 gap-0.5">
               {(['low', 'mid', 'high'] as const).map((band, i) => (
-                <div key={band} className="flex flex-col gap-0.5">
-                  <span className="text-[4px] text-slate-600 font-mono text-center">
-                    {['Lo', 'Mid', 'Hi'][i]}
-                  </span>
+                <div key={band} className="flex flex-col gap-px">
+                  <span className="text-[4px] text-slate-600 font-mono text-center">{['Lo', 'Mid', 'Hi'][i]}</span>
                   <input type="range" min="-15" max="15" step="1" value={eq[band]}
                     onChange={(e) => handleEQ(band, parseFloat(e.target.value))}
-                    className={`w-full h-1 bg-white/10 rounded appearance-none cursor-pointer ${
-                      ['accent-orange-400', 'accent-yellow-400', 'accent-cyan-400'][i]
-                    }`} />
+                    className={`w-full h-1 bg-white/10 rounded appearance-none cursor-pointer ${['accent-orange-400','accent-yellow-400','accent-cyan-400'][i]}`} />
                 </div>
               ))}
             </div>
@@ -229,28 +152,15 @@ export const Deck: React.FC<DeckProps> = ({
 
           {/* Hotcues */}
           <div>
-            <span className="text-[5px] text-slate-600 uppercase font-black block mb-0.5">Hotcues</span>
+            <span className="text-[4px] text-slate-600 uppercase font-black block mb-0.5">Hotcues</span>
             <div className="grid grid-cols-4 gap-0.5">
               {[0,1,2,3].map((i) => (
-                <div key={i} className="flex flex-col gap-0.5">
-                  <button
-                    onClick={() => hotcues[i] !== null ? jumpHotcue(i) : markHotcue(i)}
-                    className={`py-0.5 rounded text-[5px] font-black uppercase transition-all active:scale-95 ${
-                      hotcues[i] !== null
-                        ? `${hotcueColors[i].bg} text-white`
-                        : 'bg-white/5 text-slate-700 border border-white/5'
-                    }`}
-                    style={hotcues[i] !== null ? { boxShadow: `0 0 4px ${hotcueColors[i].glow}60` } : {}}
-                  >
-                    {hotcues[i] !== null ? formatTime(hotcues[i]!) : `C${i+1}`}
-                  </button>
-                  {hotcues[i] !== null && (
-                    <button
-                      onClick={() => { const n = [...hotcues]; n[i] = null; setHotcues(n); }}
-                      className="text-[4px] text-slate-700 hover:text-red-400 text-center"
-                    >✕</button>
-                  )}
-                </div>
+                <button key={i}
+                  onClick={() => hotcues[i] !== null ? onSeekTo(hotcues[i]!) : (() => { const n=[...hotcues]; n[i]=state.progress; setHotcues(n); })()}
+                  className={`py-0.5 rounded text-[4px] font-black uppercase transition-all active:scale-95 ${hotcues[i] !== null ? `${hotcueColors[i]} text-white` : 'bg-white/5 text-slate-700 border border-white/5'}`}
+                  style={hotcues[i] !== null ? { boxShadow: `0 0 4px ${hotcueGlow[i]}60` } : {}}>
+                  {hotcues[i] !== null ? fmt(hotcues[i]!) : `C${i+1}`}
+                </button>
               ))}
             </div>
           </div>
@@ -258,40 +168,24 @@ export const Deck: React.FC<DeckProps> = ({
           {/* Pitch + Loop */}
           <div className="flex gap-1 items-center">
             <div className="flex-1">
-              <div className="flex justify-between">
-                <span className="text-[5px] text-slate-600 uppercase font-black">Pitch</span>
-                <span className="text-[5px] font-mono" style={{ color: accentColor }}>
-                  {(state.playbackRate * 100).toFixed(0)}%
-                </span>
+              <div className="flex justify-between mb-px">
+                <span className="text-[4px] text-slate-600 uppercase font-black">Pitch</span>
+                <span className="text-[4px] font-mono" style={{ color: accentColor }}>{(state.playbackRate * 100).toFixed(0)}%</span>
               </div>
               <input type="range" min="0.8" max="1.2" step="0.01" value={state.playbackRate}
                 onChange={(e) => onRateChange(parseFloat(e.target.value))}
                 className="w-full h-1 bg-white/10 rounded appearance-none cursor-pointer accent-indigo-500" />
             </div>
-            <button
-              onClick={() => setLoopActive(!loopActive)}
-              className="shrink-0 px-1.5 py-0.5 rounded text-[5px] font-black uppercase border transition-all"
-              style={loopActive ? {
-                background: `${accentColor}25`,
-                color: accentColor,
-                borderColor: `${accentColor}50`,
-                boxShadow: `0 0 6px ${accentColor}40`,
-              } : {
-                background: 'rgba(255,255,255,0.03)',
-                color: '#374151',
-                borderColor: 'rgba(255,255,255,0.06)',
-              }}
-            >
+            <button onClick={() => setLoopActive(!loopActive)}
+              className="shrink-0 px-1 py-0.5 rounded text-[4px] font-black uppercase border transition-all"
+              style={loopActive
+                ? { background: `${accentColor}25`, color: accentColor, borderColor: `${accentColor}50` }
+                : { background: 'rgba(255,255,255,0.03)', color: '#374151', borderColor: 'rgba(255,255,255,0.06)' }}>
               ⟳ Loop
             </button>
           </div>
 
         </div>
-      </div>
-
-      {/* Waveform sutil de fondo */}
-      <div className="absolute inset-x-0 bottom-0 h-8 opacity-10 pointer-events-none">
-        <Visualizer getData={getVisualizerData} mode="waveform" />
       </div>
     </div>
   );
