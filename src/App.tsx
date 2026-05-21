@@ -37,16 +37,13 @@ export default function App() {
 
   return (
     <div className="h-screen w-screen overflow-hidden text-slate-100 font-sans flex flex-col bg-slate-950 relative">
-
-      {/* Reactive glow */}
       <div className="absolute inset-0 pointer-events-none z-0 transition-all duration-300"
         style={{ background: `radial-gradient(ellipse at 50% 50%, ${skin.glow}, transparent 70%)` }} />
 
-      {/* Header */}
       <header className="h-8 flex items-center justify-between px-3 shrink-0 z-50 border-b transition-all duration-300"
         style={{ background: skin.headerBg, borderColor: skin.borderColor }}>
         <div className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded flex items-center justify-center transition-all duration-300"
+          <div className="w-5 h-5 rounded flex items-center justify-center"
             style={{ background: skin.accent, boxShadow: `0 0 8px ${skin.accent}40` }}>
             <Headphones size={11} className="text-white" />
           </div>
@@ -70,14 +67,13 @@ export default function App() {
             <GraduationCap size={10} />Academy
           </button>
           <button onClick={() => setShowInfo(true)} className="p-1 text-slate-400"><Info size={12} /></button>
-          <button className="flex items-center gap-1 px-2 py-0.5 rounded text-[8px] font-bold text-white transition-all"
+          <button className="flex items-center gap-1 px-2 py-0.5 rounded text-[8px] font-bold text-white"
             style={{ background: skin.accent }}>
             <Share2 size={9} className="text-white" />Share
           </button>
         </div>
       </header>
 
-      {/* Main */}
       <main className="flex-1 flex flex-row gap-1 p-1 overflow-hidden min-h-0 z-10">
         <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="flex-1 min-w-0 min-h-0">
           <Deck
@@ -88,7 +84,9 @@ export default function App() {
             onFilterChange={(v) => engine.setFilter('A', v)}
             onFXChange={(type, val) => engine.setFX('A', type, val)}
             onEQChange={(deck, low, mid, high) => engine.setEQ(deck, low, mid, high)}
-            onScratch={(delta) => engine.scratch('A', delta)}
+            onScratchStart={() => engine.scratchStart('A')}
+            onScratchMove={(rate) => engine.scratchMove('A', rate)}
+            onScratchEnd={() => engine.scratchEnd('A')}
             onSeekTo={(t) => engine.seekTo('A', t)}
             getVisualizerData={engine.analyserDataA}
             getFreqData={engine.freqDataA}
@@ -112,6 +110,8 @@ export default function App() {
             onSetRateA={(r) => engine.setPlaybackRate('A', r)}
             onSetRateB={(r) => engine.setPlaybackRate('B', r)}
             accentColor={skin.accent}
+            freqDataA={engine.freqDataA}
+            freqDataB={engine.freqDataB}
           />
         </motion.div>
 
@@ -124,7 +124,9 @@ export default function App() {
             onFilterChange={(v) => engine.setFilter('B', v)}
             onFXChange={(type, val) => engine.setFX('B', type, val)}
             onEQChange={(deck, low, mid, high) => engine.setEQ(deck, low, mid, high)}
-            onScratch={(delta) => engine.scratch('B', delta)}
+            onScratchStart={() => engine.scratchStart('B')}
+            onScratchMove={(rate) => engine.scratchMove('B', rate)}
+            onScratchEnd={() => engine.scratchEnd('B')}
             onSeekTo={(t) => engine.seekTo('B', t)}
             getVisualizerData={engine.analyserDataB}
             getFreqData={engine.freqDataB}
@@ -133,7 +135,6 @@ export default function App() {
         </motion.div>
       </main>
 
-      {/* Footer */}
       <footer className="h-5 shrink-0 border-t flex items-center justify-between px-3 z-40 transition-all duration-300"
         style={{ background: skin.headerBg, borderColor: skin.borderColor }}>
         <div className="flex gap-3 items-center">
@@ -150,10 +151,9 @@ export default function App() {
               style={{ width: `${engine.masterEnergy * 100}%`, background: skin.accent }} />
           </div>
         </div>
-        <span className="text-[7px] text-slate-600 font-mono">v3.1.0</span>
+        <span className="text-[7px] text-slate-600 font-mono">v3.2.0</span>
       </footer>
 
-      {/* Modals */}
       <AnimatePresence>
         {showInfo && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -166,13 +166,12 @@ export default function App() {
               </h3>
               <ul className="space-y-2 text-slate-400 text-xs">
                 <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>01.</span><span>Pulsa <b>Load</b> para cargar una canción.</span></li>
-                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>02.</span><span>Toca el vinilo y <b>arrastra</b> para hacer scratch.</span></li>
-                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>03.</span><span><b>Mantén pulsado</b> el vinilo para saltar a esa posición.</span></li>
-                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>04.</span><span><b>Echo</b> y <b>Space</b> son efectos que se activan/desactivan.</span></li>
-                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>05.</span><span><b>✨ Magic</b> hace la mezcla automática completa.</span></li>
-                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>06.</span><span>La interfaz cambia de color con la energía 🎨</span></li>
+                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>02.</span><span><b>Arrastra el vinilo</b> para hacer scratch — la velocidad del giro controla el sonido.</span></li>
+                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>03.</span><span><b>Echo</b> y <b>Space</b> activan efectos de audio.</span></li>
+                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>04.</span><span><b>✨ Magic</b> — la IA detecta el subidón, sincroniza y arranca el otro plato. Tú mueves el crossfader cuando quieras.</span></li>
+                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>05.</span><span>La interfaz cambia de color con la energía 🎨</span></li>
               </ul>
-              <button onClick={() => setShowInfo(false)} className="w-full mt-5 font-bold py-2 rounded-xl border text-sm transition-all"
+              <button onClick={() => setShowInfo(false)} className="w-full mt-5 font-bold py-2 rounded-xl border text-sm"
                 style={{ background: `${skin.accent}20`, color: skin.accent, borderColor: `${skin.accent}40` }}>Cerrar</button>
             </motion.div>
           </motion.div>
@@ -186,7 +185,7 @@ export default function App() {
               <div className="bg-white/5 p-4 rounded-xl border border-white/10 mb-4">
                 <h4 className="text-pink-400 font-bold uppercase tracking-widest text-[9px] mb-1">Reto actual</h4>
                 <p className="text-white font-medium text-sm">Scratch Transition</p>
-                <p className="text-slate-400 text-xs mt-1">Arrastra el vinilo del Plato A, luego mueve el crossfader al Plato B.</p>
+                <p className="text-slate-400 text-xs mt-1">Arrastra el vinilo del Plato A rápido hacia atrás y adelante, luego mueve el crossfader al Plato B.</p>
               </div>
               <button onClick={() => setShowAcademy(false)} className="w-full bg-pink-600 text-white font-black uppercase tracking-widest py-3 rounded-xl text-sm">Aceptar reto</button>
             </motion.div>
