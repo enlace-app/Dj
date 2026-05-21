@@ -13,7 +13,9 @@ interface DeckProps {
   onFilterChange: (freq: number) => void;
   onFXChange: (type: 'delay' | 'reverb', value: number) => void;
   onEQChange: (deck: 'A' | 'B', low: number, mid: number, high: number) => void;
-  onScratch: (deltaTime: number) => void;
+  onScratchStart: () => void;
+  onScratchMove: (rate: number) => void;
+  onScratchEnd: () => void;
   onSeekTo: (time: number) => void;
   getVisualizerData: () => any;
   getFreqData?: () => any;
@@ -22,8 +24,8 @@ interface DeckProps {
 
 export const Deck: React.FC<DeckProps> = ({
   id, state, onLoad, onTogglePlay, onRateChange, onFilterChange,
-  onFXChange, onEQChange, onScratch, onSeekTo, getVisualizerData, getFreqData,
-  accentColor = '#6366f1'
+  onFXChange, onEQChange, onScratchStart, onScratchMove, onScratchEnd,
+  onSeekTo, getVisualizerData, getFreqData, accentColor = '#6366f1'
 }) => {
   const [eq, setEq] = useState({ low: 0, mid: 0, high: 0 });
   const [hotcues, setHotcues] = useState<(number | null)[]>([null, null, null, null]);
@@ -50,79 +52,68 @@ export const Deck: React.FC<DeckProps> = ({
   const hotcueGlow = ['#ec4899', '#eab308', '#06b6d4', '#22c55e'];
 
   return (
-    <div
-      className="flex flex-col h-full w-full rounded-xl overflow-hidden"
-      style={{ background: 'rgba(8,8,18,0.92)', border: `1px solid ${accentColor}30` }}
-    >
+    <div className="flex flex-col h-full w-full rounded-xl overflow-hidden"
+      style={{ background: 'rgba(8,8,18,0.92)', border: `1px solid ${accentColor}30` }}>
+
       {/* Header */}
       <div className="flex items-center justify-between px-2 py-0.5 shrink-0 border-b border-white/5">
         <span className="font-mono text-[7px] tracking-widest uppercase font-black text-slate-500">Ch.{id}</span>
         <div className="flex items-center gap-2">
-          {state.isLoaded && (
-            <span className="text-[6px] font-mono font-bold" style={{ color: accentColor }}>{state.bpm} BPM</span>
-          )}
+          {state.isLoaded && <span className="text-[6px] font-mono font-bold" style={{ color: accentColor }}>{state.bpm} BPM</span>}
           <span className="text-[7px] font-black font-mono" style={{ color: state.isPlaying ? accentColor : '#374151' }}>
             {state.isPlaying ? '▶ PLAY' : '■ STOP'}
           </span>
         </div>
       </div>
 
-      {/* Freq bars — altura fija */}
+      {/* Freq bars */}
       <div className="h-6 mx-1.5 mt-0.5 rounded overflow-hidden bg-black/40 border border-white/5 shrink-0">
         <Visualizer getData={getVisualizerData} freqData={getFreqData} mode="bars" />
       </div>
 
-      {/* Layout horizontal: plato izquierda (tamaño fijo) + controles derecha */}
+      {/* Main: turntable + controls */}
       <div className="flex-1 flex flex-row min-h-0 p-1 gap-1.5">
 
-        {/* Plato — ancho y alto FIJOS, nunca crece */}
-        <div
-          className="shrink-0 flex items-center justify-center"
-          style={{ width: 112, height: '100%', maxWidth: 112 }}
-        >
+        {/* Turntable — fixed size */}
+        <div className="shrink-0 flex items-center justify-center" style={{ width: 112 }}>
           <Turntable
             isPlaying={state.isPlaying}
             progress={state.progress}
             duration={state.duration}
             playbackRate={state.playbackRate}
-            onScratch={onScratch}
+            onScratchStart={onScratchStart}
+            onScratchMove={onScratchMove}
+            onScratchEnd={onScratchEnd}
           />
         </div>
 
-        {/* Controles — ocupa el resto */}
+        {/* Controls */}
         <div className="flex-1 min-w-0 flex flex-col justify-between gap-0.5">
 
-          {/* Nombre + tiempo */}
+          {/* Track name + time */}
           <div className="flex items-center justify-between bg-black/30 px-1.5 py-0.5 rounded border border-white/5 shrink-0">
             <p className="text-[6px] text-white font-semibold truncate uppercase flex-1 mr-1">
               {state.fileName === 'No Track Loaded' ? 'Sin pista' : state.fileName}
             </p>
             <div className="flex items-center gap-1 shrink-0">
               <span className="text-[5px] text-slate-500 font-mono">{fmt(state.progress)}</span>
-              {state.key && (
-                <span className="text-[5px] font-black px-0.5 rounded"
-                  style={{ color: accentColor, background: `${accentColor}20` }}>
-                  {state.key}
-                </span>
-              )}
+              {state.key && <span className="text-[5px] font-black px-0.5 rounded"
+                style={{ color: accentColor, background: `${accentColor}20` }}>{state.key}</span>}
             </div>
           </div>
 
           {/* Load + Play */}
           <div className="grid grid-cols-2 gap-1 shrink-0">
-            <label className="flex items-center justify-center gap-1 bg-white/5 border border-white/10 py-1 rounded cursor-pointer active:scale-95 transition-all">
+            <label className="flex items-center justify-center gap-1 bg-white/5 border border-white/10 py-1 rounded cursor-pointer active:scale-95">
               <Upload size={8} className="text-slate-400 shrink-0" />
               <span className="text-[6px] text-slate-300 font-black uppercase">Load</span>
               <input type="file" accept="audio/*" className="hidden" onChange={handleFileChange} />
             </label>
-            <button
-              onClick={onTogglePlay}
-              disabled={!state.isLoaded}
+            <button onClick={onTogglePlay} disabled={!state.isLoaded}
               className="flex items-center justify-center gap-1 py-1 rounded border active:scale-95 disabled:opacity-40 transition-all"
               style={state.isPlaying
                 ? { background: accentColor, borderColor: accentColor, boxShadow: `0 0 6px ${accentColor}60` }
-                : { background: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)' }}
-            >
+                : { background: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)' }}>
               {state.isPlaying
                 ? <Pause size={8} fill="white" className="text-white shrink-0" />
                 : <Play size={8} fill="#94a3b8" className="text-slate-400 shrink-0" />}
@@ -134,15 +125,13 @@ export const Deck: React.FC<DeckProps> = ({
 
           {/* FX */}
           <div className="grid grid-cols-2 gap-1 shrink-0">
-            <button onClick={toggleEcho}
-              className="py-0.5 rounded border text-[6px] font-black uppercase transition-all active:scale-95"
+            <button onClick={toggleEcho} className="py-0.5 rounded border text-[6px] font-black uppercase transition-all active:scale-95"
               style={echoOn
                 ? { background: 'rgba(99,102,241,0.25)', borderColor: '#6366f1', color: '#818cf8', boxShadow: '0 0 6px rgba(99,102,241,0.4)' }
                 : { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)', color: '#475569' }}>
               🔁 Echo
             </button>
-            <button onClick={toggleSpace}
-              className="py-0.5 rounded border text-[6px] font-black uppercase transition-all active:scale-95"
+            <button onClick={toggleSpace} className="py-0.5 rounded border text-[6px] font-black uppercase transition-all active:scale-95"
               style={spaceOn
                 ? { background: 'rgba(168,85,247,0.25)', borderColor: '#a855f7', color: '#c084fc', boxShadow: '0 0 6px rgba(168,85,247,0.4)' }
                 : { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)', color: '#475569' }}>
@@ -154,21 +143,16 @@ export const Deck: React.FC<DeckProps> = ({
           <div className="shrink-0">
             <div className="flex justify-between mb-0.5">
               <span className="text-[5px] text-slate-600 uppercase font-black">EQ</span>
-              <button
-                onClick={() => { setEq({ low: 0, mid: 0, high: 0 }); onEQChange(id, 0, 0, 0); }}
-                className="text-[4px] text-slate-700 hover:text-slate-400 uppercase">
-                Reset
-              </button>
+              <button onClick={() => { setEq({ low: 0, mid: 0, high: 0 }); onEQChange(id, 0, 0, 0); }}
+                className="text-[4px] text-slate-700 hover:text-slate-400 uppercase">Reset</button>
             </div>
             <div className="grid grid-cols-3 gap-0.5">
               {(['low', 'mid', 'high'] as const).map((band, i) => (
                 <div key={band} className="flex flex-col gap-px">
                   <span className="text-[4px] text-slate-600 font-mono text-center">{['Lo', 'Mid', 'Hi'][i]}</span>
-                  <input
-                    type="range" min="-15" max="15" step="1" value={eq[band]}
+                  <input type="range" min="-15" max="15" step="1" value={eq[band]}
                     onChange={(e) => handleEQ(band, parseFloat(e.target.value))}
-                    className={`w-full h-1 bg-white/10 rounded appearance-none cursor-pointer ${['accent-orange-400','accent-yellow-400','accent-cyan-400'][i]}`}
-                  />
+                    className={`w-full h-1 bg-white/10 rounded appearance-none cursor-pointer ${['accent-orange-400','accent-yellow-400','accent-cyan-400'][i]}`} />
                 </div>
               ))}
             </div>
@@ -180,20 +164,11 @@ export const Deck: React.FC<DeckProps> = ({
             <div className="grid grid-cols-4 gap-0.5">
               {[0,1,2,3].map((i) => (
                 <button key={i}
-                  onClick={() => {
-                    if (hotcues[i] !== null) {
-                      onSeekTo(hotcues[i]!);
-                    } else {
-                      const n = [...hotcues];
-                      n[i] = state.progress;
-                      setHotcues(n);
-                    }
-                  }}
+                  onClick={() => hotcues[i] !== null ? onSeekTo(hotcues[i]!) : (() => { const n=[...hotcues]; n[i]=state.progress; setHotcues(n); })()}
                   className={`py-0.5 rounded text-[4px] font-black uppercase transition-all active:scale-95 ${
                     hotcues[i] !== null ? `${hotcueColors[i]} text-white` : 'bg-white/5 text-slate-700 border border-white/5'
                   }`}
-                  style={hotcues[i] !== null ? { boxShadow: `0 0 4px ${hotcueGlow[i]}60` } : {}}
-                >
+                  style={hotcues[i] !== null ? { boxShadow: `0 0 4px ${hotcueGlow[i]}60` } : {}}>
                   {hotcues[i] !== null ? fmt(hotcues[i]!) : `C${i+1}`}
                 </button>
               ))}
@@ -205,18 +180,13 @@ export const Deck: React.FC<DeckProps> = ({
             <div className="flex-1">
               <div className="flex justify-between mb-px">
                 <span className="text-[4px] text-slate-600 uppercase font-black">Pitch</span>
-                <span className="text-[4px] font-mono" style={{ color: accentColor }}>
-                  {(state.playbackRate * 100).toFixed(0)}%
-                </span>
+                <span className="text-[4px] font-mono" style={{ color: accentColor }}>{(state.playbackRate * 100).toFixed(0)}%</span>
               </div>
-              <input
-                type="range" min="0.8" max="1.2" step="0.01" value={state.playbackRate}
+              <input type="range" min="0.5" max="1.5" step="0.01" value={state.playbackRate}
                 onChange={(e) => onRateChange(parseFloat(e.target.value))}
-                className="w-full h-1 bg-white/10 rounded appearance-none cursor-pointer accent-indigo-500"
-              />
+                className="w-full h-1 bg-white/10 rounded appearance-none cursor-pointer accent-indigo-500" />
             </div>
-            <button
-              onClick={() => setLoopActive(!loopActive)}
+            <button onClick={() => setLoopActive(!loopActive)}
               className="shrink-0 px-1 py-0.5 rounded text-[4px] font-black uppercase border transition-all"
               style={loopActive
                 ? { background: `${accentColor}25`, color: accentColor, borderColor: `${accentColor}50` }
