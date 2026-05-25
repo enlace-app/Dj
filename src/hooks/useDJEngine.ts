@@ -61,32 +61,27 @@ async function detectBPM(audioBuffer: AudioBuffer): Promise<number> {
   } catch { return 120; }
 }
 
-// ─── Real scratch engine using Web Audio API ───────────────────────────────
-// Tone.js cannot do real scratch (no negative playbackRate, no scrubbing).
-// We use a raw AudioBufferSourceNode that we restart rapidly on each
-// pointer-move event, playing a tiny window of audio at the current
-// scratch position. This produces the classic vinyl scratch sound.
-
 class ScratchDeck {
   private ctx: AudioContext;
   private buffer: AudioBuffer | null = null;
-  private output: GainNode;
+  readonly inputNode: GainNode;
   private source: AudioBufferSourceNode | null = null;
-  private _position = 0;       // current playback position in seconds
-  private _rate = 1;           // normal playback rate (pitch slider)
-  private _playing = false;    // normal play state
+  private _position = 0;
+  private _rate = 1;
+  private _playing = false;
   private _scratching = false;
   private rafId: number | null = null;
-  private lastUpdateTime = 0;
-  private startedAt = 0;       // audioCtx.currentTime when play started
-  private startOffset = 0;     // buffer offset when play started
+  private startedAt = 0;
+  private startOffset = 0;
 
-  constructor(ctx: AudioContext, output: GainNode) {
+  constructor(ctx: AudioContext) {
     this.ctx = ctx;
-    this.output = output;
+    this.inputNode = ctx.createGain();
+    this.inputNode.gain.value = 1;
   }
 
   setBuffer(buf: AudioBuffer) {
+    this.stop();
     this.buffer = buf;
     this._position = 0;
     this._playing = false;
@@ -97,7 +92,6 @@ class ScratchDeck {
   get isPlaying() { return this._playing; }
   get duration() { return this.buffer?.duration ?? 0; }
 
-  // ── Normal play / stop ──────────────────────────────────────────────────
   play() {
     if (!this.buffer || this._playing) return;
     this._playing = true;
@@ -127,20 +121,12 @@ class ScratchDeck {
     }
   }
 
-  // ── Scratch ────────────────────────────────────────────────────────────
-  // Called from Turntable on every pointer-move with angular velocity
-  // velocity: degrees/sec (positive = forward, negative = backward)
   scratchTick(velocity: number) {
     if (!this.buffer) return;
     this._scratching = true;
-
-    // Convert angular velocity to seconds-per-second
-    // One full revolution (360°) ≈ 0.5 seconds of audio at normal speed
     const secondsPerSec = velocity / 360 * 0.5;
-    const dt = 0.016; // ~one frame at 60fps
+    const dt = 0.016;
     this._position = Math.max(0, Math.min(this._position + secondsPerSec * dt, this.duration - 0.05));
-
-    // Play a tiny burst at current position to create scratch sound
     this._burstAt(this._position, secondsPerSec);
   }
 
@@ -148,7 +134,6 @@ class ScratchDeck {
     this._scratching = false;
     this._stopSource();
     if (this._playing) {
-      // Resume normal playback from scratch position
       this._startSource(this._position, this._rate);
       this._trackProgress();
     }
@@ -156,27 +141,18 @@ class ScratchDeck {
 
   private _burstAt(offset: number, rate: number) {
     if (!this.buffer) return;
-    // Stop previous source immediately
     if (this.source) {
       try { this.source.stop(); } catch {}
       this.source.disconnect();
       this.source = null;
     }
-    if (Math.abs(rate) < 0.01) return; // stationary — silence
-
+    if (Math.abs(rate) < 0.01) return;
     const src = this.ctx.createBufferSource();
     src.buffer = this.buffer;
-    // Positive rate = forward, negative not supported natively so we
-    // reverse by adjusting offset backward and playing forward at abs rate
-    const absRate = Math.min(Math.abs(rate), 4);
-    src.playbackRate.value = absRate;
-    src.connect(this.output);
-
-    const startOffset = rate < 0
-      ? Math.max(0, offset - 0.08) // backward: jump slightly back and play forward fast
-      : offset;
-
-    src.start(0, startOffset, 0.1); // play 100ms window
+    src.playbackRate.value = Math.min(Math.abs(rate), 4);
+    src.connect(this.inputNode);
+    const startOff = rate < 0 ? Math.max(0, offset - 0.08) : offset;
+    src.start(0, startOff, 0.1);
     this.source = src;
   }
 
@@ -186,7 +162,7 @@ class ScratchDeck {
     const src = this.ctx.createBufferSource();
     src.buffer = this.buffer;
     src.playbackRate.value = rate;
-    src.connect(this.output);
+    src.connect(this.inputNode);
     src.start(0, offset);
     this.source = src;
     this.startedAt = this.ctx.currentTime;
@@ -207,11 +183,7 @@ class ScratchDeck {
       if (!this._playing || this._scratching) return;
       if (this.source) {
         this._position = this.startOffset + (this.ctx.currentTime - this.startedAt) * this._rate;
-        if (this._position >= this.duration) {
-          this._position = this.duration;
-          this.stop();
-          return;
-        }
+        if (this._position >= this.duration) { this._position = this.duration; this.stop(); return; }
       }
       this.rafId = requestAnimationFrame(tick);
     };
@@ -222,12 +194,43 @@ class ScratchDeck {
     if (this.rafId !== null) { cancelAnimationFrame(this.rafId); this.rafId = null; }
   }
 
-  dispose() {
-    this.stop();
-  }
+  dispose() { this.stop(); }
 }
 
-// ──────────────────────────────────────────────────────────────────────────
+function makeImpulse(ctx: AudioContext, duration = 2.5, decay = 2) {
+  const len = ctx.sampleRate * duration;
+  const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+  for (let c = 0; c < 2; c++) {
+    const d = buf.getChannelData(c);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+  }
+  return buf;
+}
+
+// Build a 3-band EQ using BiquadFilterNodes
+function makeEQ(ctx: AudioContext) {
+  const low = ctx.createBiquadFilter();
+  low.type = 'lowshelf';
+  low.frequency.value = 320;
+  low.gain.value = 0;
+
+  const mid = ctx.createBiquadFilter();
+  mid.type = 'peaking';
+  mid.frequency.value = 1000;
+  mid.Q.value = 1;
+  mid.gain.value = 0;
+
+  const high = ctx.createBiquadFilter();
+  high.type = 'highshelf';
+  high.frequency.value = 3200;
+  high.gain.value = 0;
+
+  // Chain: low → mid → high
+  low.connect(mid);
+  mid.connect(high);
+
+  return { low, mid, high, input: low, output: high };
+}
 
 export const useDJEngine = () => {
   const [deckA, setDeckA] = useState<DeckState>({
@@ -242,58 +245,39 @@ export const useDJEngine = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [masterEnergy, setMasterEnergy] = useState(0);
 
-  // Web Audio context shared with Tone.js
   const actx = useRef<AudioContext | null>(null);
-
-  // Gain nodes for crossfader
+  const scratchA = useRef<ScratchDeck | null>(null);
+  const scratchB = useRef<ScratchDeck | null>(null);
   const gainA = useRef<GainNode | null>(null);
   const gainB = useRef<GainNode | null>(null);
   const masterGain = useRef<GainNode | null>(null);
-
-  // ScratchDecks
-  const scratchA = useRef<ScratchDeck | null>(null);
-  const scratchB = useRef<ScratchDeck | null>(null);
-
-  // Analysers for visualizer
   const analyserA = useRef<AnalyserNode | null>(null);
   const analyserB = useRef<AnalyserNode | null>(null);
   const freqAnalyserA = useRef<AnalyserNode | null>(null);
   const freqAnalyserB = useRef<AnalyserNode | null>(null);
   const masterAnalyser = useRef<AnalyserNode | null>(null);
-
-  // Effects
-  const delayA = useRef<DelayNode | null>(null);
-  const delayB = useRef<DelayNode | null>(null);
-  const delayFeedA = useRef<GainNode | null>(null);
-  const delayFeedB = useRef<GainNode | null>(null);
   const delayWetA = useRef<GainNode | null>(null);
   const delayWetB = useRef<GainNode | null>(null);
-  const reverbConvA = useRef<ConvolverNode | null>(null);
-  const reverbConvB = useRef<ConvolverNode | null>(null);
   const reverbWetA = useRef<GainNode | null>(null);
   const reverbWetB = useRef<GainNode | null>(null);
+
+  // EQ nodes
+  const eqALow = useRef<BiquadFilterNode | null>(null);
+  const eqAMid = useRef<BiquadFilterNode | null>(null);
+  const eqAHigh = useRef<BiquadFilterNode | null>(null);
+  const eqBLow = useRef<BiquadFilterNode | null>(null);
+  const eqBMid = useRef<BiquadFilterNode | null>(null);
+  const eqBHigh = useRef<BiquadFilterNode | null>(null);
 
   const recorder = useRef<Tone.Recorder | null>(null);
   const autoMixInterval = useRef<number | null>(null);
   const progressInterval = useRef<number | null>(null);
 
-  // Build impulse for convolver reverb
-  const makeImpulse = (ctx: AudioContext, duration = 2, decay = 2) => {
-    const len = ctx.sampleRate * duration;
-    const buf = ctx.createBuffer(2, len, ctx.sampleRate);
-    for (let c = 0; c < 2; c++) {
-      const d = buf.getChannelData(c);
-      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
-    }
-    return buf;
-  };
-
   useEffect(() => {
-    // Get AudioContext from Tone.js so they share the same context
     const ctx = Tone.getContext().rawContext as AudioContext;
     actx.current = ctx;
 
-    // Master chain
+    // Master
     masterGain.current = ctx.createGain();
     masterGain.current.gain.value = 0.85;
     masterAnalyser.current = ctx.createAnalyser();
@@ -301,77 +285,80 @@ export const useDJEngine = () => {
     masterGain.current.connect(masterAnalyser.current);
     masterAnalyser.current.connect(ctx.destination);
 
-    // Deck A chain: scratchDeck → gainA → delayWet + reverbWet + dry → masterGain
-    gainA.current = ctx.createGain();
-    gainA.current.gain.value = 1;
-
+    // ── Deck A chain ────────────────────────────────────────────────────
+    // ScratchDeck.inputNode → EQ(low→mid→high) → gainA → master
+    // Also: inputNode → delayWet → gainA
+    //       inputNode → reverbWet → gainA
+    scratchA.current = new ScratchDeck(ctx);
+    gainA.current = ctx.createGain(); gainA.current.gain.value = 1;
     analyserA.current = ctx.createAnalyser(); analyserA.current.fftSize = 512;
     freqAnalyserA.current = ctx.createAnalyser(); freqAnalyserA.current.fftSize = 128;
 
-    // Delay A
-    delayA.current = ctx.createDelay(2);
-    delayA.current.delayTime.value = 0.25;
-    delayFeedA.current = ctx.createGain(); delayFeedA.current.gain.value = 0.35;
-    delayWetA.current = ctx.createGain(); delayWetA.current.gain.value = 0; // off
-    delayA.current.connect(delayFeedA.current);
-    delayFeedA.current.connect(delayA.current);
-    delayA.current.connect(delayWetA.current);
+    const eqA = makeEQ(ctx);
+    eqALow.current = eqA.low;
+    eqAMid.current = eqA.mid;
+    eqAHigh.current = eqA.high;
+
+    // Dry signal through EQ
+    scratchA.current.inputNode.connect(eqA.input);
+    eqA.output.connect(gainA.current);
+
+    // Delay A (taps from inputNode before EQ for authentic sound)
+    const delayNodeA = ctx.createDelay(2); delayNodeA.delayTime.value = 0.3;
+    const delayFeedA = ctx.createGain(); delayFeedA.gain.value = 0.4;
+    delayWetA.current = ctx.createGain(); delayWetA.current.gain.value = 0;
+    scratchA.current.inputNode.connect(delayNodeA);
+    delayNodeA.connect(delayFeedA);
+    delayFeedA.connect(delayNodeA);
+    delayNodeA.connect(delayWetA.current);
     delayWetA.current.connect(gainA.current);
 
     // Reverb A
-    reverbConvA.current = ctx.createConvolver();
-    reverbConvA.current.buffer = makeImpulse(ctx);
-    reverbWetA.current = ctx.createGain(); reverbWetA.current.gain.value = 0; // off
-    reverbConvA.current.connect(reverbWetA.current);
+    const convA = ctx.createConvolver(); convA.buffer = makeImpulse(ctx);
+    reverbWetA.current = ctx.createGain(); reverbWetA.current.gain.value = 0;
+    scratchA.current.inputNode.connect(convA);
+    convA.connect(reverbWetA.current);
     reverbWetA.current.connect(gainA.current);
 
     gainA.current.connect(analyserA.current);
     gainA.current.connect(freqAnalyserA.current);
     gainA.current.connect(masterGain.current);
 
-    scratchA.current = new ScratchDeck(ctx, gainA.current);
-    // Also feed into delay/reverb
-    // (ScratchDeck connects source → gainA which is correct)
-
-    // Deck B chain
-    gainB.current = ctx.createGain();
-    gainB.current.gain.value = 1;
-
+    // ── Deck B chain ────────────────────────────────────────────────────
+    scratchB.current = new ScratchDeck(ctx);
+    gainB.current = ctx.createGain(); gainB.current.gain.value = 1;
     analyserB.current = ctx.createAnalyser(); analyserB.current.fftSize = 512;
     freqAnalyserB.current = ctx.createAnalyser(); freqAnalyserB.current.fftSize = 128;
 
-    delayB.current = ctx.createDelay(2);
-    delayB.current.delayTime.value = 0.25;
-    delayFeedB.current = ctx.createGain(); delayFeedB.current.gain.value = 0.35;
+    const eqB = makeEQ(ctx);
+    eqBLow.current = eqB.low;
+    eqBMid.current = eqB.mid;
+    eqBHigh.current = eqB.high;
+
+    scratchB.current.inputNode.connect(eqB.input);
+    eqB.output.connect(gainB.current);
+
+    const delayNodeB = ctx.createDelay(2); delayNodeB.delayTime.value = 0.3;
+    const delayFeedB = ctx.createGain(); delayFeedB.gain.value = 0.4;
     delayWetB.current = ctx.createGain(); delayWetB.current.gain.value = 0;
-    delayB.current.connect(delayFeedB.current);
-    delayFeedB.current.connect(delayB.current);
-    delayB.current.connect(delayWetB.current);
+    scratchB.current.inputNode.connect(delayNodeB);
+    delayNodeB.connect(delayFeedB);
+    delayFeedB.connect(delayNodeB);
+    delayNodeB.connect(delayWetB.current);
     delayWetB.current.connect(gainB.current);
 
-    reverbConvB.current = ctx.createConvolver();
-    reverbConvB.current.buffer = makeImpulse(ctx);
+    const convB = ctx.createConvolver(); convB.buffer = makeImpulse(ctx);
     reverbWetB.current = ctx.createGain(); reverbWetB.current.gain.value = 0;
-    reverbConvB.current.connect(reverbWetB.current);
+    scratchB.current.inputNode.connect(convB);
+    convB.connect(reverbWetB.current);
     reverbWetB.current.connect(gainB.current);
 
     gainB.current.connect(analyserB.current);
     gainB.current.connect(freqAnalyserB.current);
     gainB.current.connect(masterGain.current);
 
-    scratchB.current = new ScratchDeck(ctx, gainB.current);
-
-    // Crossfader: gain A/B controlled by crossfader value
-    // 0 = full A, 1 = full B, 0.5 = both
-    gainA.current.gain.value = 1;
-    gainB.current.gain.value = 1;
-
-    // Recorder via Tone.js
     recorder.current = new Tone.Recorder();
-    // Connect masterGain to recorder via Tone MediaStreamDestination
-    // (simplified — recorder will capture Tone's destination)
 
-    // Energy interval
     const energyInt = setInterval(() => {
       if (masterAnalyser.current) {
         const data = new Float32Array(masterAnalyser.current.frequencyBinCount);
@@ -381,7 +368,6 @@ export const useDJEngine = () => {
       }
     }, 60);
 
-    // Progress interval
     progressInterval.current = window.setInterval(() => {
       if (scratchA.current) {
         const p = scratchA.current.position;
@@ -406,21 +392,17 @@ export const useDJEngine = () => {
       const ctx = actx.current;
       if (!ctx) return;
       if (ctx.state === 'suspended') await ctx.resume();
-
       const fileName = typeof track === 'string' ? track.split('/').pop() || 'Track' : track.name;
       const arrayBuffer = typeof track === 'string'
         ? await (await fetch(track, { mode: 'cors' })).arrayBuffer()
         : await track.arrayBuffer();
-
       const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
       const sd = deck === 'A' ? scratchA.current : scratchB.current;
       if (!sd) return;
-
       sd.setBuffer(audioBuffer);
       const update = { fileName, duration: audioBuffer.duration, progress: 0, isPlaying: false, isLoaded: true, bpm: 120 };
       if (deck === 'A') setDeckA(prev => ({ ...prev, ...update }));
       else setDeckB(prev => ({ ...prev, ...update }));
-
       detectBPM(audioBuffer).then(bpm => {
         if (deck === 'A') setDeckA(prev => ({ ...prev, bpm }));
         else setDeckB(prev => ({ ...prev, bpm }));
@@ -454,7 +436,6 @@ export const useDJEngine = () => {
 
   const handleCrossfade = useCallback((value: number) => {
     setCrossfader(value);
-    // Equal power crossfade
     const angleA = value * 0.5 * Math.PI;
     const angleB = (1 - value) * 0.5 * Math.PI;
     if (gainA.current) gainA.current.gain.value = Math.cos(angleA);
@@ -476,26 +457,21 @@ export const useDJEngine = () => {
     else setDeckB(p => ({ ...p, progress: time }));
   }, []);
 
-  // ── SCRATCH — real vinyl scratch using ScratchDeck ──────────────────────
   const scratchStart = useCallback((_deck: 'A' | 'B') => {
-    // Just ensure context is running
     actx.current?.resume();
   }, []);
 
   const scratchMove = useCallback((deck: 'A' | 'B', velocity: number) => {
-    const sd = deck === 'A' ? scratchA.current : scratchB.current;
-    sd?.scratchTick(velocity);
+    (deck === 'A' ? scratchA.current : scratchB.current)?.scratchTick(velocity);
   }, []);
 
   const scratchEnd = useCallback((deck: 'A' | 'B') => {
-    const sd = deck === 'A' ? scratchA.current : scratchB.current;
-    sd?.scratchEnd();
+    (deck === 'A' ? scratchA.current : scratchB.current)?.scratchEnd();
   }, []);
 
   const syncDecks = useCallback(() => {
-    const bA = deckA.bpm, bB = deckB.bpm;
-    if (bA > 0 && bB > 0) {
-      const rate = Math.max(0.8, Math.min(1.2, bA / bB));
+    if (deckA.bpm > 0 && deckB.bpm > 0) {
+      const rate = Math.max(0.8, Math.min(1.2, deckA.bpm / deckB.bpm));
       scratchB.current?.setRate(rate);
       setDeckB(p => ({ ...p, playbackRate: rate }));
     }
@@ -528,32 +504,42 @@ export const useDJEngine = () => {
     }, 100);
   }, [crossfader, handleCrossfade]);
 
-  const getWaveformData = (analyser: AnalyserNode | null) => {
-    if (!analyser) return null;
-    const data = new Float32Array(analyser.fftSize);
-    analyser.getFloatTimeDomainData(data);
-    return data;
-  };
-
-  const getFreqData = (analyser: AnalyserNode | null) => {
-    if (!analyser) return null;
-    const data = new Float32Array(analyser.frequencyBinCount);
-    analyser.getFloatFrequencyData(data);
-    return data;
-  };
-
   return {
     deckA, deckB, crossfader, isRecording, masterEnergy,
-    analyserDataA: () => getWaveformData(analyserA.current),
-    analyserDataB: () => getWaveformData(analyserB.current),
-    freqDataA: () => getFreqData(freqAnalyserA.current),
-    freqDataB: () => getFreqData(freqAnalyserB.current),
+    analyserDataA: () => {
+      if (!analyserA.current) return null;
+      const d = new Float32Array(analyserA.current.fftSize);
+      analyserA.current.getFloatTimeDomainData(d); return d;
+    },
+    analyserDataB: () => {
+      if (!analyserB.current) return null;
+      const d = new Float32Array(analyserB.current.fftSize);
+      analyserB.current.getFloatTimeDomainData(d); return d;
+    },
+    freqDataA: () => {
+      if (!freqAnalyserA.current) return null;
+      const d = new Float32Array(freqAnalyserA.current.frequencyBinCount);
+      freqAnalyserA.current.getFloatFrequencyData(d); return d;
+    },
+    freqDataB: () => {
+      if (!freqAnalyserB.current) return null;
+      const d = new Float32Array(freqAnalyserB.current.frequencyBinCount);
+      freqAnalyserB.current.getFloatFrequencyData(d); return d;
+    },
     loadTrack, togglePlay, seekTo,
     scratchStart, scratchMove, scratchEnd,
     handleCrossfade, setPlaybackRate,
     syncDecks, startRecording, stopRecording, startAutoMix,
-    setFilter: (_deck: 'A' | 'B', _freq: number) => {}, // placeholder
-    setEQ: (_deck: 'A' | 'B', _low: number, _mid: number, _high: number) => {},
+    setFilter: (_deck: 'A' | 'B', _freq: number) => {},
+    // EQ — now actually connected
+    setEQ: (deck: 'A' | 'B', low: number, mid: number, high: number) => {
+      const lowNode  = deck === 'A' ? eqALow.current  : eqBLow.current;
+      const midNode  = deck === 'A' ? eqAMid.current  : eqBMid.current;
+      const highNode = deck === 'A' ? eqAHigh.current : eqBHigh.current;
+      if (lowNode)  lowNode.gain.value  = low;
+      if (midNode)  midNode.gain.value  = mid;
+      if (highNode) highNode.gain.value = high;
+    },
     setFX: (deck: 'A' | 'B', type: 'delay' | 'reverb', value: number) => {
       if (type === 'delay') {
         const wet = deck === 'A' ? delayWetA.current : delayWetB.current;
