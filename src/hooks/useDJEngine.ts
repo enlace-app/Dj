@@ -15,6 +15,37 @@ export interface DeckState {
   key?: string;
   suggestedNext?: { suggestion: string; tip: string };
   energy: number;
+  dropTime: number; // time of main drop in seconds
+}
+
+// Detect the main drop time — finds the peak energy window in the second half
+async function detectDrop(audioBuffer: AudioBuffer): Promise<number> {
+  try {
+    const data = audioBuffer.getChannelData(0);
+    const sr = audioBuffer.sampleRate;
+    const windowSec = 2; // 2-second windows
+    const windowSize = sr * windowSec;
+    const duration = audioBuffer.duration;
+    // Search in 30%-80% of the track (typical drop range)
+    const startSample = Math.floor(sr * duration * 0.30);
+    const endSample = Math.floor(sr * duration * 0.80);
+    let maxEnergy = 0;
+    let dropSample = Math.floor(sr * duration * 0.50); // default: middle
+
+    for (let i = startSample; i < endSample - windowSize; i += windowSize / 2) {
+      let energy = 0;
+      for (let j = 0; j < windowSize; j++) {
+        energy += data[i + j] * data[i + j];
+      }
+      if (energy > maxEnergy) {
+        maxEnergy = energy;
+        dropSample = i;
+      }
+    }
+    return dropSample / sr;
+  } catch {
+    return 0;
+  }
 }
 
 async function detectBPM(audioBuffer: AudioBuffer): Promise<number> {
@@ -33,13 +64,13 @@ async function detectBPM(audioBuffer: AudioBuffer): Promise<number> {
     filter.connect(offlineCtx.destination);
     source.start(0);
     const rendered = await offlineCtx.startRendering();
-    const data = rendered.getChannelData(0);
-    const windowSize = Math.floor(sampleRate * 0.02);
+    const d = rendered.getChannelData(0);
+    const ws = Math.floor(sampleRate * 0.02);
     const energies: number[] = [];
-    for (let i = 0; i < data.length - windowSize; i += windowSize) {
+    for (let i = 0; i < d.length - ws; i += ws) {
       let e = 0;
-      for (let j = 0; j < windowSize; j++) e += data[i + j] * data[i + j];
-      energies.push(e / windowSize);
+      for (let j = 0; j < ws; j++) e += d[i + j] * d[i + j];
+      energies.push(e / ws);
     }
     const avg = energies.reduce((a, b) => a + b, 0) / energies.length;
     const threshold = avg * 1.5;
@@ -47,7 +78,7 @@ async function detectBPM(audioBuffer: AudioBuffer): Promise<number> {
     let lastPeak = -10;
     for (let i = 1; i < energies.length - 1; i++) {
       if (energies[i] > threshold && energies[i] > energies[i-1] && energies[i] > energies[i+1] && i - lastPeak > 10) {
-        peaks.push(i * windowSize / sampleRate);
+        peaks.push(i * ws / sampleRate);
         lastPeak = i;
       }
     }
@@ -141,11 +172,7 @@ class ScratchDeck {
 
   private _burstAt(offset: number, rate: number) {
     if (!this.buffer) return;
-    if (this.source) {
-      try { this.source.stop(); } catch {}
-      this.source.disconnect();
-      this.source = null;
-    }
+    if (this.source) { try { this.source.stop(); } catch {} this.source.disconnect(); this.source = null; }
     if (Math.abs(rate) < 0.01) return;
     const src = this.ctx.createBufferSource();
     src.buffer = this.buffer;
@@ -170,11 +197,7 @@ class ScratchDeck {
   }
 
   private _stopSource() {
-    if (this.source) {
-      try { this.source.stop(); } catch {}
-      this.source.disconnect();
-      this.source = null;
-    }
+    if (this.source) { try { this.source.stop(); } catch {} this.source.disconnect(); this.source = null; }
   }
 
   private _trackProgress() {
@@ -207,39 +230,25 @@ function makeImpulse(ctx: AudioContext, duration = 2.5, decay = 2) {
   return buf;
 }
 
-// Build a 3-band EQ using BiquadFilterNodes
 function makeEQ(ctx: AudioContext) {
   const low = ctx.createBiquadFilter();
-  low.type = 'lowshelf';
-  low.frequency.value = 320;
-  low.gain.value = 0;
-
+  low.type = 'lowshelf'; low.frequency.value = 320; low.gain.value = 0;
   const mid = ctx.createBiquadFilter();
-  mid.type = 'peaking';
-  mid.frequency.value = 1000;
-  mid.Q.value = 1;
-  mid.gain.value = 0;
-
+  mid.type = 'peaking'; mid.frequency.value = 1000; mid.Q.value = 1; mid.gain.value = 0;
   const high = ctx.createBiquadFilter();
-  high.type = 'highshelf';
-  high.frequency.value = 3200;
-  high.gain.value = 0;
-
-  // Chain: low → mid → high
-  low.connect(mid);
-  mid.connect(high);
-
+  high.type = 'highshelf'; high.frequency.value = 3200; high.gain.value = 0;
+  low.connect(mid); mid.connect(high);
   return { low, mid, high, input: low, output: high };
 }
 
 export const useDJEngine = () => {
   const [deckA, setDeckA] = useState<DeckState>({
     isPlaying: false, bpm: 120, volume: 0, progress: 0, duration: 0,
-    fileName: 'No Track Loaded', isSyncing: false, playbackRate: 1, isLoaded: false, key: '1A', energy: 0,
+    fileName: 'No Track Loaded', isSyncing: false, playbackRate: 1, isLoaded: false, key: '1A', energy: 0, dropTime: 0,
   });
   const [deckB, setDeckB] = useState<DeckState>({
     isPlaying: false, bpm: 120, volume: 0, progress: 0, duration: 0,
-    fileName: 'No Track Loaded', isSyncing: false, playbackRate: 1, isLoaded: false, key: '2A', energy: 0,
+    fileName: 'No Track Loaded', isSyncing: false, playbackRate: 1, isLoaded: false, key: '2A', energy: 0, dropTime: 0,
   });
   const [crossfader, setCrossfader] = useState(0.5);
   const [isRecording, setIsRecording] = useState(false);
@@ -260,15 +269,12 @@ export const useDJEngine = () => {
   const delayWetB = useRef<GainNode | null>(null);
   const reverbWetA = useRef<GainNode | null>(null);
   const reverbWetB = useRef<GainNode | null>(null);
-
-  // EQ nodes
   const eqALow = useRef<BiquadFilterNode | null>(null);
   const eqAMid = useRef<BiquadFilterNode | null>(null);
   const eqAHigh = useRef<BiquadFilterNode | null>(null);
   const eqBLow = useRef<BiquadFilterNode | null>(null);
   const eqBMid = useRef<BiquadFilterNode | null>(null);
   const eqBHigh = useRef<BiquadFilterNode | null>(null);
-
   const recorder = useRef<Tone.Recorder | null>(null);
   const autoMixInterval = useRef<number | null>(null);
   const progressInterval = useRef<number | null>(null);
@@ -277,85 +283,50 @@ export const useDJEngine = () => {
     const ctx = Tone.getContext().rawContext as AudioContext;
     actx.current = ctx;
 
-    // Master
-    masterGain.current = ctx.createGain();
-    masterGain.current.gain.value = 0.85;
-    masterAnalyser.current = ctx.createAnalyser();
-    masterAnalyser.current.fftSize = 64;
+    masterGain.current = ctx.createGain(); masterGain.current.gain.value = 0.85;
+    masterAnalyser.current = ctx.createAnalyser(); masterAnalyser.current.fftSize = 64;
     masterGain.current.connect(masterAnalyser.current);
     masterAnalyser.current.connect(ctx.destination);
 
-    // ── Deck A chain ────────────────────────────────────────────────────
-    // ScratchDeck.inputNode → EQ(low→mid→high) → gainA → master
-    // Also: inputNode → delayWet → gainA
-    //       inputNode → reverbWet → gainA
+    // Deck A
     scratchA.current = new ScratchDeck(ctx);
     gainA.current = ctx.createGain(); gainA.current.gain.value = 1;
     analyserA.current = ctx.createAnalyser(); analyserA.current.fftSize = 512;
     freqAnalyserA.current = ctx.createAnalyser(); freqAnalyserA.current.fftSize = 128;
-
     const eqA = makeEQ(ctx);
-    eqALow.current = eqA.low;
-    eqAMid.current = eqA.mid;
-    eqAHigh.current = eqA.high;
-
-    // Dry signal through EQ
+    eqALow.current = eqA.low; eqAMid.current = eqA.mid; eqAHigh.current = eqA.high;
     scratchA.current.inputNode.connect(eqA.input);
     eqA.output.connect(gainA.current);
-
-    // Delay A (taps from inputNode before EQ for authentic sound)
     const delayNodeA = ctx.createDelay(2); delayNodeA.delayTime.value = 0.3;
     const delayFeedA = ctx.createGain(); delayFeedA.gain.value = 0.4;
     delayWetA.current = ctx.createGain(); delayWetA.current.gain.value = 0;
     scratchA.current.inputNode.connect(delayNodeA);
-    delayNodeA.connect(delayFeedA);
-    delayFeedA.connect(delayNodeA);
-    delayNodeA.connect(delayWetA.current);
-    delayWetA.current.connect(gainA.current);
-
-    // Reverb A
+    delayNodeA.connect(delayFeedA); delayFeedA.connect(delayNodeA);
+    delayNodeA.connect(delayWetA.current); delayWetA.current.connect(gainA.current);
     const convA = ctx.createConvolver(); convA.buffer = makeImpulse(ctx);
     reverbWetA.current = ctx.createGain(); reverbWetA.current.gain.value = 0;
-    scratchA.current.inputNode.connect(convA);
-    convA.connect(reverbWetA.current);
-    reverbWetA.current.connect(gainA.current);
+    scratchA.current.inputNode.connect(convA); convA.connect(reverbWetA.current); reverbWetA.current.connect(gainA.current);
+    gainA.current.connect(analyserA.current); gainA.current.connect(freqAnalyserA.current); gainA.current.connect(masterGain.current);
 
-    gainA.current.connect(analyserA.current);
-    gainA.current.connect(freqAnalyserA.current);
-    gainA.current.connect(masterGain.current);
-
-    // ── Deck B chain ────────────────────────────────────────────────────
+    // Deck B
     scratchB.current = new ScratchDeck(ctx);
     gainB.current = ctx.createGain(); gainB.current.gain.value = 1;
     analyserB.current = ctx.createAnalyser(); analyserB.current.fftSize = 512;
     freqAnalyserB.current = ctx.createAnalyser(); freqAnalyserB.current.fftSize = 128;
-
     const eqB = makeEQ(ctx);
-    eqBLow.current = eqB.low;
-    eqBMid.current = eqB.mid;
-    eqBHigh.current = eqB.high;
-
+    eqBLow.current = eqB.low; eqBMid.current = eqB.mid; eqBHigh.current = eqB.high;
     scratchB.current.inputNode.connect(eqB.input);
     eqB.output.connect(gainB.current);
-
     const delayNodeB = ctx.createDelay(2); delayNodeB.delayTime.value = 0.3;
     const delayFeedB = ctx.createGain(); delayFeedB.gain.value = 0.4;
     delayWetB.current = ctx.createGain(); delayWetB.current.gain.value = 0;
     scratchB.current.inputNode.connect(delayNodeB);
-    delayNodeB.connect(delayFeedB);
-    delayFeedB.connect(delayNodeB);
-    delayNodeB.connect(delayWetB.current);
-    delayWetB.current.connect(gainB.current);
-
+    delayNodeB.connect(delayFeedB); delayFeedB.connect(delayNodeB);
+    delayNodeB.connect(delayWetB.current); delayWetB.current.connect(gainB.current);
     const convB = ctx.createConvolver(); convB.buffer = makeImpulse(ctx);
     reverbWetB.current = ctx.createGain(); reverbWetB.current.gain.value = 0;
-    scratchB.current.inputNode.connect(convB);
-    convB.connect(reverbWetB.current);
-    reverbWetB.current.connect(gainB.current);
-
-    gainB.current.connect(analyserB.current);
-    gainB.current.connect(freqAnalyserB.current);
-    gainB.current.connect(masterGain.current);
+    scratchB.current.inputNode.connect(convB); convB.connect(reverbWetB.current); reverbWetB.current.connect(gainB.current);
+    gainB.current.connect(analyserB.current); gainB.current.connect(freqAnalyserB.current); gainB.current.connect(masterGain.current);
 
     recorder.current = new Tone.Recorder();
 
@@ -400,13 +371,16 @@ export const useDJEngine = () => {
       const sd = deck === 'A' ? scratchA.current : scratchB.current;
       if (!sd) return;
       sd.setBuffer(audioBuffer);
-      const update = { fileName, duration: audioBuffer.duration, progress: 0, isPlaying: false, isLoaded: true, bpm: 120 };
+      const update = { fileName, duration: audioBuffer.duration, progress: 0, isPlaying: false, isLoaded: true, bpm: 120, dropTime: audioBuffer.duration * 0.5 };
       if (deck === 'A') setDeckA(prev => ({ ...prev, ...update }));
       else setDeckB(prev => ({ ...prev, ...update }));
-      detectBPM(audioBuffer).then(bpm => {
-        if (deck === 'A') setDeckA(prev => ({ ...prev, bpm }));
-        else setDeckB(prev => ({ ...prev, bpm }));
+
+      // Detect BPM and drop in parallel
+      Promise.all([detectBPM(audioBuffer), detectDrop(audioBuffer)]).then(([bpm, dropTime]) => {
+        if (deck === 'A') setDeckA(prev => ({ ...prev, bpm, dropTime }));
+        else setDeckB(prev => ({ ...prev, bpm, dropTime }));
       });
+
       analyzeTrack(fileName).then(a => {
         if (deck === 'A') setDeckA(prev => ({ ...prev, key: a.key }));
         else setDeckB(prev => ({ ...prev, key: a.key }));
@@ -457,14 +431,10 @@ export const useDJEngine = () => {
     else setDeckB(p => ({ ...p, progress: time }));
   }, []);
 
-  const scratchStart = useCallback((_deck: 'A' | 'B') => {
-    actx.current?.resume();
-  }, []);
-
+  const scratchStart = useCallback((_deck: 'A' | 'B') => { actx.current?.resume(); }, []);
   const scratchMove = useCallback((deck: 'A' | 'B', velocity: number) => {
     (deck === 'A' ? scratchA.current : scratchB.current)?.scratchTick(velocity);
   }, []);
-
   const scratchEnd = useCallback((deck: 'A' | 'B') => {
     (deck === 'A' ? scratchA.current : scratchB.current)?.scratchEnd();
   }, []);
@@ -504,6 +474,14 @@ export const useDJEngine = () => {
     }, 100);
   }, [crossfader, handleCrossfade]);
 
+  // Ramp EQ gain smoothly
+  const rampEQ = (node: BiquadFilterNode | null, target: number, durationMs: number) => {
+    if (!node || !actx.current) return;
+    const ctx = actx.current;
+    node.gain.setValueAtTime(node.gain.value, ctx.currentTime);
+    node.gain.linearRampToValueAtTime(target, ctx.currentTime + durationMs / 1000);
+  };
+
   return {
     deckA, deckB, crossfader, isRecording, masterEnergy,
     analyserDataA: () => {
@@ -531,7 +509,6 @@ export const useDJEngine = () => {
     handleCrossfade, setPlaybackRate,
     syncDecks, startRecording, stopRecording, startAutoMix,
     setFilter: (_deck: 'A' | 'B', _freq: number) => {},
-    // EQ — now actually connected
     setEQ: (deck: 'A' | 'B', low: number, mid: number, high: number) => {
       const lowNode  = deck === 'A' ? eqALow.current  : eqBLow.current;
       const midNode  = deck === 'A' ? eqAMid.current  : eqBMid.current;
@@ -548,6 +525,12 @@ export const useDJEngine = () => {
         const wet = deck === 'A' ? reverbWetA.current : reverbWetB.current;
         if (wet) wet.gain.value = value;
       }
+    },
+    // Magic DJ EQ automation — ramp EQ gains over time
+    magicEQRamp: (deck: 'A' | 'B', low: number, mid: number, high: number, durationMs: number) => {
+      rampEQ(deck === 'A' ? eqALow.current : eqBLow.current, low, durationMs);
+      rampEQ(deck === 'A' ? eqAMid.current : eqBMid.current, mid, durationMs);
+      rampEQ(deck === 'A' ? eqAHigh.current : eqBHigh.current, high, durationMs);
     },
   };
 };
