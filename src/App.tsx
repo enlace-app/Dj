@@ -40,6 +40,7 @@ export default function App() {
       <div className="absolute inset-0 pointer-events-none z-0 transition-all duration-300"
         style={{ background: `radial-gradient(ellipse at 50% 50%, ${skin.glow}, transparent 70%)` }} />
 
+      {/* Header */}
       <header className="h-8 flex items-center justify-between px-3 shrink-0 z-50 border-b transition-all duration-300"
         style={{ background: skin.headerBg, borderColor: skin.borderColor }}>
         <div className="flex items-center gap-2">
@@ -74,6 +75,7 @@ export default function App() {
         </div>
       </header>
 
+      {/* Main */}
       <main className="flex-1 flex flex-row gap-1 p-1 overflow-hidden min-h-0 z-10">
         <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="flex-1 min-w-0 min-h-0">
           <Deck
@@ -103,12 +105,29 @@ export default function App() {
             onStopRecording={engine.stopRecording}
             onSync={engine.syncDecks}
             onAutoMix={engine.startAutoMix}
-            deckA={{ bpm: engine.deckA.bpm, progress: engine.deckA.progress, duration: engine.deckA.duration, isPlaying: engine.deckA.isPlaying, isLoaded: engine.deckA.isLoaded }}
-            deckB={{ bpm: engine.deckB.bpm, progress: engine.deckB.progress, duration: engine.deckB.duration, isPlaying: engine.deckB.isPlaying, isLoaded: engine.deckB.isLoaded }}
+            deckA={{
+              bpm: engine.deckA.bpm,
+              progress: engine.deckA.progress,
+              duration: engine.deckA.duration,
+              isPlaying: engine.deckA.isPlaying,
+              isLoaded: engine.deckA.isLoaded,
+              dropTime: engine.deckA.dropTime,
+            }}
+            deckB={{
+              bpm: engine.deckB.bpm,
+              progress: engine.deckB.progress,
+              duration: engine.deckB.duration,
+              isPlaying: engine.deckB.isPlaying,
+              isLoaded: engine.deckB.isLoaded,
+              dropTime: engine.deckB.dropTime,
+            }}
             onTogglePlayA={() => engine.togglePlay('A')}
             onTogglePlayB={() => engine.togglePlay('B')}
             onSetRateA={(r) => engine.setPlaybackRate('A', r)}
             onSetRateB={(r) => engine.setPlaybackRate('B', r)}
+            onSeekA={(t) => engine.seekTo('A', t)}
+            onSeekB={(t) => engine.seekTo('B', t)}
+            magicEQRamp={engine.magicEQRamp}
             accentColor={skin.accent}
             freqDataA={engine.freqDataA}
             freqDataB={engine.freqDataB}
@@ -135,6 +154,7 @@ export default function App() {
         </motion.div>
       </main>
 
+      {/* Footer */}
       <footer className="h-5 shrink-0 border-t flex items-center justify-between px-3 z-40 transition-all duration-300"
         style={{ background: skin.headerBg, borderColor: skin.borderColor }}>
         <div className="flex gap-3 items-center">
@@ -151,9 +171,10 @@ export default function App() {
               style={{ width: `${engine.masterEnergy * 100}%`, background: skin.accent }} />
           </div>
         </div>
-        <span className="text-[7px] text-slate-600 font-mono">v3.2.0</span>
+        <span className="text-[7px] text-slate-600 font-mono">v4.0.0</span>
       </footer>
 
+      {/* Modals */}
       <AnimatePresence>
         {showInfo && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -165,11 +186,12 @@ export default function App() {
                 <Headphones style={{ color: skin.accent }} size={18} />Cómo usar VirtualDeck
               </h3>
               <ul className="space-y-2 text-slate-400 text-xs">
-                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>01.</span><span>Pulsa <b>Load</b> para cargar una canción.</span></li>
-                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>02.</span><span><b>Arrastra el vinilo</b> para hacer scratch — la velocidad del giro controla el sonido.</span></li>
-                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>03.</span><span><b>Echo</b> y <b>Space</b> activan efectos de audio.</span></li>
-                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>04.</span><span><b>✨ Magic</b> — la IA detecta el subidón, sincroniza y arranca el otro plato. Tú mueves el crossfader cuando quieras.</span></li>
-                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>05.</span><span>La interfaz cambia de color con la energía 🎨</span></li>
+                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>01.</span><span>Pulsa <b>Load</b> para cargar canciones en ambos platos.</span></li>
+                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>02.</span><span>Arrastra el vinilo para hacer <b>scratch</b> profesional.</span></li>
+                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>03.</span><span><b>Echo</b> y <b>Space</b> añaden efectos de audio al instante.</span></li>
+                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>04.</span><span><b>✨ Magic</b> detecta el drop de cada canción y hace la mezcla perfecta automáticamente — como el mejor DJ del mundo.</span></li>
+                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>05.</span><span>El número <b>⚡Xs</b> en el mixer indica en qué segundo está el drop de cada pista.</span></li>
+                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>06.</span><span>La interfaz cambia de color según la energía 🎨</span></li>
               </ul>
               <button onClick={() => setShowInfo(false)} className="w-full mt-5 font-bold py-2 rounded-xl border text-sm"
                 style={{ background: `${skin.accent}20`, color: skin.accent, borderColor: `${skin.accent}40` }}>Cerrar</button>
@@ -181,13 +203,18 @@ export default function App() {
             className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xl">
             <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }}
               className="bg-slate-900 p-6 rounded-2xl border border-pink-500/20 max-w-sm w-full">
-              <h3 className="text-xl font-black mb-4 flex items-center gap-3"><GraduationCap size={24} className="text-pink-500" />DJ Academy</h3>
+              <h3 className="text-xl font-black mb-4 flex items-center gap-3">
+                <GraduationCap size={24} className="text-pink-500" />DJ Academy
+              </h3>
               <div className="bg-white/5 p-4 rounded-xl border border-white/10 mb-4">
                 <h4 className="text-pink-400 font-bold uppercase tracking-widest text-[9px] mb-1">Reto actual</h4>
-                <p className="text-white font-medium text-sm">Scratch Transition</p>
-                <p className="text-slate-400 text-xs mt-1">Arrastra el vinilo del Plato A rápido hacia atrás y adelante, luego mueve el crossfader al Plato B.</p>
+                <p className="text-white font-medium text-sm">Magic Mix</p>
+                <p className="text-slate-400 text-xs mt-1">Carga dos canciones, pulsa ✨ Magic y deja que la IA encuentre los drops y haga la mezcla perfecta.</p>
               </div>
-              <button onClick={() => setShowAcademy(false)} className="w-full bg-pink-600 text-white font-black uppercase tracking-widest py-3 rounded-xl text-sm">Aceptar reto</button>
+              <button onClick={() => setShowAcademy(false)}
+                className="w-full bg-pink-600 text-white font-black uppercase tracking-widest py-3 rounded-xl text-sm">
+                Aceptar reto
+              </button>
             </motion.div>
           </motion.div>
         )}
