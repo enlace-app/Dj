@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { Play, Pause, Upload } from 'lucide-react';
 import { Turntable } from './Turntable';
 import { Visualizer } from './Visualizer';
+import { WaveformOverview } from './WaveformOverview';
 import { DeckState } from '../hooks/useDJEngine';
 
 interface DeckProps {
   id: 'A' | 'B';
   state: DeckState;
+  audioBuffer: AudioBuffer | null;
   onLoad: (file: File) => void;
   onTogglePlay: () => void;
   onRateChange: (rate: number) => void;
@@ -23,7 +25,7 @@ interface DeckProps {
 }
 
 export const Deck: React.FC<DeckProps> = ({
-  id, state, onLoad, onTogglePlay, onRateChange, onFilterChange,
+  id, state, audioBuffer, onLoad, onTogglePlay, onRateChange, onFilterChange,
   onFXChange, onEQChange, onScratchStart, onScratchMove, onScratchEnd,
   onSeekTo, getVisualizerData, getFreqData, accentColor = '#6366f1'
 }) => {
@@ -48,6 +50,16 @@ export const Deck: React.FC<DeckProps> = ({
   const toggleEcho = () => { const n = !echoOn; setEchoOn(n); onFXChange('delay', n ? 0.65 : 0); };
   const toggleSpace = () => { const n = !spaceOn; setSpaceOn(n); onFXChange('reverb', n ? 0.7 : 0); };
 
+  const markOrJumpHotcue = (i: number) => {
+    if (hotcues[i] !== null) {
+      onSeekTo(hotcues[i]!);
+    } else {
+      const n = [...hotcues];
+      n[i] = state.progress;
+      setHotcues(n);
+    }
+  };
+
   const hotcueColors = ['bg-pink-500', 'bg-yellow-400', 'bg-cyan-500', 'bg-green-500'];
   const hotcueGlow = ['#ec4899', '#eab308', '#06b6d4', '#22c55e'];
 
@@ -66,8 +78,21 @@ export const Deck: React.FC<DeckProps> = ({
         </div>
       </div>
 
-      {/* Freq bars */}
-      <div className="h-6 mx-1.5 mt-0.5 rounded overflow-hidden bg-black/40 border border-white/5 shrink-0">
+      {/* ── WAVEFORM OVERVIEW — la onda completa de la canción ── */}
+      <div className="h-10 mx-1.5 mt-0.5 rounded overflow-hidden bg-black/60 border border-white/5 shrink-0">
+        <WaveformOverview
+          audioBuffer={audioBuffer}
+          progress={state.progress}
+          duration={state.duration}
+          hotcues={hotcues}
+          dropTime={state.dropTime ?? 0}
+          accentColor={accentColor}
+          onSeek={onSeekTo}
+        />
+      </div>
+
+      {/* Freq bars — real-time spectrum */}
+      <div className="h-5 mx-1.5 mt-0.5 rounded overflow-hidden bg-black/40 border border-white/5 shrink-0">
         <Visualizer getData={getVisualizerData} freqData={getFreqData} mode="bars" />
       </div>
 
@@ -163,8 +188,7 @@ export const Deck: React.FC<DeckProps> = ({
             <span className="text-[4px] text-slate-600 uppercase font-black block mb-0.5">Hotcues</span>
             <div className="grid grid-cols-4 gap-0.5">
               {[0,1,2,3].map((i) => (
-                <button key={i}
-                  onClick={() => hotcues[i] !== null ? onSeekTo(hotcues[i]!) : (() => { const n=[...hotcues]; n[i]=state.progress; setHotcues(n); })()}
+                <button key={i} onClick={() => markOrJumpHotcue(i)}
                   className={`py-0.5 rounded text-[4px] font-black uppercase transition-all active:scale-95 ${
                     hotcues[i] !== null ? `${hotcueColors[i]} text-white` : 'bg-white/5 text-slate-700 border border-white/5'
                   }`}
@@ -180,7 +204,9 @@ export const Deck: React.FC<DeckProps> = ({
             <div className="flex-1">
               <div className="flex justify-between mb-px">
                 <span className="text-[4px] text-slate-600 uppercase font-black">Pitch</span>
-                <span className="text-[4px] font-mono" style={{ color: accentColor }}>{(state.playbackRate * 100).toFixed(0)}%</span>
+                <span className="text-[4px] font-mono" style={{ color: accentColor }}>
+                  {(state.playbackRate * 100).toFixed(0)}%
+                </span>
               </div>
               <input type="range" min="0.5" max="1.5" step="0.01" value={state.playbackRate}
                 onChange={(e) => onRateChange(parseFloat(e.target.value))}
