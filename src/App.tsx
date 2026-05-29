@@ -80,6 +80,7 @@ export default function App() {
         <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="flex-1 min-w-0 min-h-0">
           <Deck
             id="A" state={engine.deckA}
+            audioBuffer={engine.audioBufferA}
             onLoad={(f) => engine.loadTrack('A', f)}
             onTogglePlay={() => engine.togglePlay('A')}
             onRateChange={(r) => engine.setPlaybackRate('A', r)}
@@ -105,22 +106,8 @@ export default function App() {
             onStopRecording={engine.stopRecording}
             onSync={engine.syncDecks}
             onAutoMix={engine.startAutoMix}
-            deckA={{
-              bpm: engine.deckA.bpm,
-              progress: engine.deckA.progress,
-              duration: engine.deckA.duration,
-              isPlaying: engine.deckA.isPlaying,
-              isLoaded: engine.deckA.isLoaded,
-              dropTime: engine.deckA.dropTime,
-            }}
-            deckB={{
-              bpm: engine.deckB.bpm,
-              progress: engine.deckB.progress,
-              duration: engine.deckB.duration,
-              isPlaying: engine.deckB.isPlaying,
-              isLoaded: engine.deckB.isLoaded,
-              dropTime: engine.deckB.dropTime,
-            }}
+            deckA={{ bpm: engine.deckA.bpm, progress: engine.deckA.progress, duration: engine.deckA.duration, isPlaying: engine.deckA.isPlaying, isLoaded: engine.deckA.isLoaded, dropTime: engine.deckA.dropTime }}
+            deckB={{ bpm: engine.deckB.bpm, progress: engine.deckB.progress, duration: engine.deckB.duration, isPlaying: engine.deckB.isPlaying, isLoaded: engine.deckB.isLoaded, dropTime: engine.deckB.dropTime }}
             onTogglePlayA={() => engine.togglePlay('A')}
             onTogglePlayB={() => engine.togglePlay('B')}
             onSetRateA={(r) => engine.setPlaybackRate('A', r)}
@@ -137,6 +124,7 @@ export default function App() {
         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 }} className="flex-1 min-w-0 min-h-0">
           <Deck
             id="B" state={engine.deckB}
+            audioBuffer={engine.audioBufferB}
             onLoad={(f) => engine.loadTrack('B', f)}
             onTogglePlay={() => engine.togglePlay('B')}
             onRateChange={(r) => engine.setPlaybackRate('B', r)}
@@ -171,7 +159,7 @@ export default function App() {
               style={{ width: `${engine.masterEnergy * 100}%`, background: skin.accent }} />
           </div>
         </div>
-        <span className="text-[7px] text-slate-600 font-mono">v4.0.0</span>
+        <span className="text-[7px] text-slate-600 font-mono">v4.1.0</span>
       </footer>
 
       {/* Modals */}
@@ -187,11 +175,11 @@ export default function App() {
               </h3>
               <ul className="space-y-2 text-slate-400 text-xs">
                 <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>01.</span><span>Pulsa <b>Load</b> para cargar canciones en ambos platos.</span></li>
-                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>02.</span><span>Arrastra el vinilo para hacer <b>scratch</b> profesional.</span></li>
-                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>03.</span><span><b>Echo</b> y <b>Space</b> añaden efectos de audio al instante.</span></li>
-                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>04.</span><span><b>✨ Magic</b> detecta el drop de cada canción y hace la mezcla perfecta automáticamente — como el mejor DJ del mundo.</span></li>
-                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>05.</span><span>El número <b>⚡Xs</b> en el mixer indica en qué segundo está el drop de cada pista.</span></li>
-                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>06.</span><span>La interfaz cambia de color según la energía 🎨</span></li>
+                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>02.</span><span>La <b>onda completa</b> de la canción aparece arriba — toca para saltar a cualquier punto.</span></li>
+                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>03.</span><span>El marcador <b>⚡</b> amarillo indica el drop principal detectado automáticamente.</span></li>
+                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>04.</span><span>Arrastra el vinilo para hacer <b>scratch</b> profesional.</span></li>
+                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>05.</span><span><b>✨ Magic</b> detecta los drops y hace la mezcla perfecta automáticamente.</span></li>
+                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>06.</span><span>La interfaz cambia de color con la energía 🎨</span></li>
               </ul>
               <button onClick={() => setShowInfo(false)} className="w-full mt-5 font-bold py-2 rounded-xl border text-sm"
                 style={{ background: `${skin.accent}20`, color: skin.accent, borderColor: `${skin.accent}40` }}>Cerrar</button>
@@ -208,8 +196,8 @@ export default function App() {
               </h3>
               <div className="bg-white/5 p-4 rounded-xl border border-white/10 mb-4">
                 <h4 className="text-pink-400 font-bold uppercase tracking-widest text-[9px] mb-1">Reto actual</h4>
-                <p className="text-white font-medium text-sm">Magic Mix</p>
-                <p className="text-slate-400 text-xs mt-1">Carga dos canciones, pulsa ✨ Magic y deja que la IA encuentre los drops y haga la mezcla perfecta.</p>
+                <p className="text-white font-medium text-sm">Waveform Navigation</p>
+                <p className="text-slate-400 text-xs mt-1">Usa la onda completa para saltar directamente al drop ⚡ de la canción y mezcla en ese momento exacto.</p>
               </div>
               <button onClick={() => setShowAcademy(false)}
                 className="w-full bg-pink-600 text-white font-black uppercase tracking-widest py-3 rounded-xl text-sm">
