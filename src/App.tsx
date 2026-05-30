@@ -8,18 +8,10 @@ import { useState, useMemo } from 'react';
 
 function useReactiveSkin(energy: number) {
   return useMemo(() => {
-    if (energy < 0.25) return {
-      glow: 'rgba(30,30,60,0)', accent: '#6366f1', label: '', headerBg: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.08)',
-    };
-    if (energy < 0.5) return {
-      glow: `rgba(99,102,241,${(energy - 0.25) * 0.3})`, accent: '#818cf8', label: 'Build-up', headerBg: 'rgba(99,102,241,0.05)', borderColor: 'rgba(99,102,241,0.15)',
-    };
-    if (energy < 0.75) return {
-      glow: `rgba(168,85,247,${(energy - 0.5) * 0.4})`, accent: '#c084fc', label: '⚡ Energy', headerBg: 'rgba(168,85,247,0.07)', borderColor: 'rgba(168,85,247,0.2)',
-    };
-    return {
-      glow: `rgba(239,68,68,${(energy - 0.75) * 0.5})`, accent: '#f87171', label: '🔥 DROP!', headerBg: 'rgba(239,68,68,0.08)', borderColor: 'rgba(239,68,68,0.25)',
-    };
+    if (energy < 0.25) return { glow: 'rgba(30,30,60,0)', accent: '#6366f1', label: '', headerBg: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.08)' };
+    if (energy < 0.5)  return { glow: `rgba(99,102,241,${(energy-0.25)*0.3})`, accent: '#818cf8', label: 'Build-up', headerBg: 'rgba(99,102,241,0.05)', borderColor: 'rgba(99,102,241,0.15)' };
+    if (energy < 0.75) return { glow: `rgba(168,85,247,${(energy-0.5)*0.4})`, accent: '#c084fc', label: '⚡ Energy', headerBg: 'rgba(168,85,247,0.07)', borderColor: 'rgba(168,85,247,0.2)' };
+    return { glow: `rgba(239,68,68,${(energy-0.75)*0.5})`, accent: '#f87171', label: '🔥 DROP!', headerBg: 'rgba(239,68,68,0.08)', borderColor: 'rgba(239,68,68,0.25)' };
   }, [energy]);
 }
 
@@ -30,17 +22,13 @@ export default function App() {
   const [audioStatus, setAudioStatus] = useState(Tone.getContext().state);
   const skin = useReactiveSkin(engine.masterEnergy);
 
-  const startAudio = async () => {
-    await Tone.start();
-    setAudioStatus(Tone.getContext().state);
-  };
+  const startAudio = async () => { await Tone.start(); setAudioStatus(Tone.getContext().state); };
 
   return (
     <div className="h-screen w-screen overflow-hidden text-slate-100 font-sans flex flex-col bg-slate-950 relative">
       <div className="absolute inset-0 pointer-events-none z-0 transition-all duration-300"
         style={{ background: `radial-gradient(ellipse at 50% 50%, ${skin.glow}, transparent 70%)` }} />
 
-      {/* Header */}
       <header className="h-8 flex items-center justify-between px-3 shrink-0 z-50 border-b transition-all duration-300"
         style={{ background: skin.headerBg, borderColor: skin.borderColor }}>
         <div className="flex items-center gap-2">
@@ -75,7 +63,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main */}
       <main className="flex-1 flex flex-row gap-1 p-1 overflow-hidden min-h-0 z-10">
         <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="flex-1 min-w-0 min-h-0">
           <Deck
@@ -91,6 +78,7 @@ export default function App() {
             onScratchMove={(rate) => engine.scratchMove('A', rate)}
             onScratchEnd={() => engine.scratchEnd('A')}
             onSeekTo={(t) => engine.seekTo('A', t)}
+            onSetLoop={(deck, active, len) => engine.setLoop(deck, active, len)}
             getVisualizerData={engine.analyserDataA}
             getFreqData={engine.freqDataA}
             accentColor={skin.accent}
@@ -135,6 +123,7 @@ export default function App() {
             onScratchMove={(rate) => engine.scratchMove('B', rate)}
             onScratchEnd={() => engine.scratchEnd('B')}
             onSeekTo={(t) => engine.seekTo('B', t)}
+            onSetLoop={(deck, active, len) => engine.setLoop(deck, active, len)}
             getVisualizerData={engine.analyserDataB}
             getFreqData={engine.freqDataB}
             accentColor={skin.accent}
@@ -142,7 +131,6 @@ export default function App() {
         </motion.div>
       </main>
 
-      {/* Footer */}
       <footer className="h-5 shrink-0 border-t flex items-center justify-between px-3 z-40 transition-all duration-300"
         style={{ background: skin.headerBg, borderColor: skin.borderColor }}>
         <div className="flex gap-3 items-center">
@@ -159,10 +147,9 @@ export default function App() {
               style={{ width: `${engine.masterEnergy * 100}%`, background: skin.accent }} />
           </div>
         </div>
-        <span className="text-[7px] text-slate-600 font-mono">v4.1.0</span>
+        <span className="text-[7px] text-slate-600 font-mono">v4.2.0</span>
       </footer>
 
-      {/* Modals */}
       <AnimatePresence>
         {showInfo && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -174,12 +161,11 @@ export default function App() {
                 <Headphones style={{ color: skin.accent }} size={18} />Cómo usar VirtualDeck
               </h3>
               <ul className="space-y-2 text-slate-400 text-xs">
-                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>01.</span><span>Pulsa <b>Load</b> para cargar canciones en ambos platos.</span></li>
-                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>02.</span><span>La <b>onda completa</b> de la canción aparece arriba — toca para saltar a cualquier punto.</span></li>
-                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>03.</span><span>El marcador <b>⚡</b> amarillo indica el drop principal detectado automáticamente.</span></li>
-                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>04.</span><span>Arrastra el vinilo para hacer <b>scratch</b> profesional.</span></li>
-                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>05.</span><span><b>✨ Magic</b> detecta los drops y hace la mezcla perfecta automáticamente.</span></li>
-                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>06.</span><span>La interfaz cambia de color con la energía 🎨</span></li>
+                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>01.</span><span>Pulsa <b>Load</b> para cargar canciones.</span></li>
+                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>02.</span><span>La <b>onda completa</b> aparece arriba — toca para saltar. El ⚡ es el drop.</span></li>
+                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>03.</span><span><b>1B / 2B / 4B / 8B</b> — loop de 1, 2, 4 u 8 beats. Pulsa el mismo para desactivar.</span></li>
+                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>04.</span><span>La región del loop se ve resaltada en la onda.</span></li>
+                <li className="flex gap-2"><span className="font-mono font-bold" style={{ color: skin.accent }}>05.</span><span><b>✨ Magic</b> detecta los drops y hace la mezcla perfecta.</span></li>
               </ul>
               <button onClick={() => setShowInfo(false)} className="w-full mt-5 font-bold py-2 rounded-xl border text-sm"
                 style={{ background: `${skin.accent}20`, color: skin.accent, borderColor: `${skin.accent}40` }}>Cerrar</button>
@@ -196,8 +182,8 @@ export default function App() {
               </h3>
               <div className="bg-white/5 p-4 rounded-xl border border-white/10 mb-4">
                 <h4 className="text-pink-400 font-bold uppercase tracking-widest text-[9px] mb-1">Reto actual</h4>
-                <p className="text-white font-medium text-sm">Waveform Navigation</p>
-                <p className="text-slate-400 text-xs mt-1">Usa la onda completa para saltar directamente al drop ⚡ de la canción y mezcla en ese momento exacto.</p>
+                <p className="text-white font-medium text-sm">Beat Loop Master</p>
+                <p className="text-slate-400 text-xs mt-1">Activa un loop de 4 beats justo en el drop ⚡ y mezcla la otra canción encima.</p>
               </div>
               <button onClick={() => setShowAcademy(false)}
                 className="w-full bg-pink-600 text-white font-black uppercase tracking-widest py-3 rounded-xl text-sm">
