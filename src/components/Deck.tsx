@@ -19,6 +19,7 @@ interface DeckProps {
   onScratchMove: (rate: number) => void;
   onScratchEnd: () => void;
   onSeekTo: (time: number) => void;
+  onSetLoop: (deck: 'A' | 'B', active: boolean, loopLength?: number) => void;
   getVisualizerData: () => any;
   getFreqData?: () => any;
   accentColor?: string;
@@ -27,11 +28,10 @@ interface DeckProps {
 export const Deck: React.FC<DeckProps> = ({
   id, state, audioBuffer, onLoad, onTogglePlay, onRateChange, onFilterChange,
   onFXChange, onEQChange, onScratchStart, onScratchMove, onScratchEnd,
-  onSeekTo, getVisualizerData, getFreqData, accentColor = '#6366f1'
+  onSeekTo, onSetLoop, getVisualizerData, getFreqData, accentColor = '#6366f1'
 }) => {
   const [eq, setEq] = useState({ low: 0, mid: 0, high: 0 });
   const [hotcues, setHotcues] = useState<(number | null)[]>([null, null, null, null]);
-  const [loopActive, setLoopActive] = useState(false);
   const [echoOn, setEchoOn] = useState(false);
   const [spaceOn, setSpaceOn] = useState(false);
 
@@ -54,14 +54,31 @@ export const Deck: React.FC<DeckProps> = ({
     if (hotcues[i] !== null) {
       onSeekTo(hotcues[i]!);
     } else {
-      const n = [...hotcues];
-      n[i] = state.progress;
-      setHotcues(n);
+      const n = [...hotcues]; n[i] = state.progress; setHotcues(n);
+    }
+  };
+
+  // Beat loop lengths in beats
+  const loopBeats = [1, 2, 4, 8];
+  const beatLen = state.bpm > 0 ? 60 / state.bpm : 0.5;
+
+  const toggleLoop = (beats: number) => {
+    const loopLength = beatLen * beats;
+    if (state.loopActive && Math.abs((state.loopEnd - state.loopStart) - loopLength) < 0.05) {
+      // Same length active — turn off
+      onSetLoop(id, false);
+    } else {
+      // Set new loop
+      onSetLoop(id, true, loopLength);
     }
   };
 
   const hotcueColors = ['bg-pink-500', 'bg-yellow-400', 'bg-cyan-500', 'bg-green-500'];
   const hotcueGlow = ['#ec4899', '#eab308', '#06b6d4', '#22c55e'];
+
+  const currentLoopBeats = state.loopActive && state.bpm > 0
+    ? Math.round((state.loopEnd - state.loopStart) / beatLen)
+    : null;
 
   return (
     <div className="flex flex-col h-full w-full rounded-xl overflow-hidden"
@@ -72,13 +89,19 @@ export const Deck: React.FC<DeckProps> = ({
         <span className="font-mono text-[7px] tracking-widest uppercase font-black text-slate-500">Ch.{id}</span>
         <div className="flex items-center gap-2">
           {state.isLoaded && <span className="text-[6px] font-mono font-bold" style={{ color: accentColor }}>{state.bpm} BPM</span>}
+          {state.loopActive && (
+            <span className="text-[5px] font-black px-1 py-px rounded animate-pulse"
+              style={{ background: `${accentColor}30`, color: accentColor, border: `1px solid ${accentColor}60` }}>
+              ⟳ {currentLoopBeats}B
+            </span>
+          )}
           <span className="text-[7px] font-black font-mono" style={{ color: state.isPlaying ? accentColor : '#374151' }}>
             {state.isPlaying ? '▶ PLAY' : '■ STOP'}
           </span>
         </div>
       </div>
 
-      {/* ── WAVEFORM OVERVIEW — la onda completa de la canción ── */}
+      {/* Waveform overview */}
       <div className="h-10 mx-1.5 mt-0.5 rounded overflow-hidden bg-black/60 border border-white/5 shrink-0">
         <WaveformOverview
           audioBuffer={audioBuffer}
@@ -86,12 +109,14 @@ export const Deck: React.FC<DeckProps> = ({
           duration={state.duration}
           hotcues={hotcues}
           dropTime={state.dropTime ?? 0}
+          loopStart={state.loopActive ? state.loopStart : null}
+          loopEnd={state.loopActive ? state.loopEnd : null}
           accentColor={accentColor}
           onSeek={onSeekTo}
         />
       </div>
 
-      {/* Freq bars — real-time spectrum */}
+      {/* Freq bars */}
       <div className="h-5 mx-1.5 mt-0.5 rounded overflow-hidden bg-black/40 border border-white/5 shrink-0">
         <Visualizer getData={getVisualizerData} freqData={getFreqData} mode="bars" />
       </div>
@@ -99,7 +124,6 @@ export const Deck: React.FC<DeckProps> = ({
       {/* Main: turntable + controls */}
       <div className="flex-1 flex flex-row min-h-0 p-1 gap-1.5">
 
-        {/* Turntable — fixed size */}
         <div className="shrink-0 flex items-center justify-center" style={{ width: 112 }}>
           <Turntable
             isPlaying={state.isPlaying}
@@ -112,10 +136,9 @@ export const Deck: React.FC<DeckProps> = ({
           />
         </div>
 
-        {/* Controls */}
         <div className="flex-1 min-w-0 flex flex-col justify-between gap-0.5">
 
-          {/* Track name + time */}
+          {/* Track info */}
           <div className="flex items-center justify-between bg-black/30 px-1.5 py-0.5 rounded border border-white/5 shrink-0">
             <p className="text-[6px] text-white font-semibold truncate uppercase flex-1 mr-1">
               {state.fileName === 'No Track Loaded' ? 'Sin pista' : state.fileName}
@@ -139,9 +162,7 @@ export const Deck: React.FC<DeckProps> = ({
               style={state.isPlaying
                 ? { background: accentColor, borderColor: accentColor, boxShadow: `0 0 6px ${accentColor}60` }
                 : { background: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)' }}>
-              {state.isPlaying
-                ? <Pause size={8} fill="white" className="text-white shrink-0" />
-                : <Play size={8} fill="#94a3b8" className="text-slate-400 shrink-0" />}
+              {state.isPlaying ? <Pause size={8} fill="white" className="text-white shrink-0" /> : <Play size={8} fill="#94a3b8" className="text-slate-400 shrink-0" />}
               <span className="text-[6px] font-black uppercase" style={{ color: state.isPlaying ? 'white' : '#94a3b8' }}>
                 {state.isPlaying ? 'Stop' : 'Play'}
               </span>
@@ -190,8 +211,7 @@ export const Deck: React.FC<DeckProps> = ({
               {[0,1,2,3].map((i) => (
                 <button key={i} onClick={() => markOrJumpHotcue(i)}
                   className={`py-0.5 rounded text-[4px] font-black uppercase transition-all active:scale-95 ${
-                    hotcues[i] !== null ? `${hotcueColors[i]} text-white` : 'bg-white/5 text-slate-700 border border-white/5'
-                  }`}
+                    hotcues[i] !== null ? `${hotcueColors[i]} text-white` : 'bg-white/5 text-slate-700 border border-white/5'}`}
                   style={hotcues[i] !== null ? { boxShadow: `0 0 4px ${hotcueGlow[i]}60` } : {}}>
                   {hotcues[i] !== null ? fmt(hotcues[i]!) : `C${i+1}`}
                 </button>
@@ -199,7 +219,34 @@ export const Deck: React.FC<DeckProps> = ({
             </div>
           </div>
 
-          {/* Pitch + Loop */}
+          {/* LOOP BEATS — 1/2/4/8 */}
+          <div className="shrink-0">
+            <span className="text-[4px] text-slate-600 uppercase font-black block mb-0.5">Loop</span>
+            <div className="grid grid-cols-4 gap-0.5">
+              {loopBeats.map((beats) => {
+                const isActive = state.loopActive && currentLoopBeats === beats;
+                return (
+                  <button key={beats} onClick={() => toggleLoop(beats)}
+                    disabled={!state.isLoaded}
+                    className="py-0.5 rounded text-[5px] font-black uppercase transition-all active:scale-95 disabled:opacity-30 border"
+                    style={isActive ? {
+                      background: `${accentColor}30`,
+                      borderColor: accentColor,
+                      color: accentColor,
+                      boxShadow: `0 0 6px ${accentColor}50`,
+                    } : {
+                      background: 'rgba(255,255,255,0.04)',
+                      borderColor: 'rgba(255,255,255,0.1)',
+                      color: '#64748b',
+                    }}>
+                    {beats}B
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Pitch */}
           <div className="flex gap-1 items-center shrink-0">
             <div className="flex-1">
               <div className="flex justify-between mb-px">
@@ -212,13 +259,6 @@ export const Deck: React.FC<DeckProps> = ({
                 onChange={(e) => onRateChange(parseFloat(e.target.value))}
                 className="w-full h-1 bg-white/10 rounded appearance-none cursor-pointer accent-indigo-500" />
             </div>
-            <button onClick={() => setLoopActive(!loopActive)}
-              className="shrink-0 px-1 py-0.5 rounded text-[4px] font-black uppercase border transition-all"
-              style={loopActive
-                ? { background: `${accentColor}25`, color: accentColor, borderColor: `${accentColor}50` }
-                : { background: 'rgba(255,255,255,0.03)', color: '#374151', borderColor: 'rgba(255,255,255,0.06)' }}>
-              ⟳ Loop
-            </button>
           </div>
 
         </div>
