@@ -15,37 +15,29 @@ export interface DeckState {
   key?: string;
   suggestedNext?: { suggestion: string; tip: string };
   energy: number;
-  dropTime: number; // time of main drop in seconds
+  dropTime: number;
+  loopActive: boolean;
+  loopStart: number;
+  loopEnd: number;
 }
 
-// Detect the main drop time — finds the peak energy window in the second half
 async function detectDrop(audioBuffer: AudioBuffer): Promise<number> {
   try {
     const data = audioBuffer.getChannelData(0);
     const sr = audioBuffer.sampleRate;
-    const windowSec = 2; // 2-second windows
-    const windowSize = sr * windowSec;
+    const windowSize = sr * 2;
     const duration = audioBuffer.duration;
-    // Search in 30%-80% of the track (typical drop range)
     const startSample = Math.floor(sr * duration * 0.30);
     const endSample = Math.floor(sr * duration * 0.80);
     let maxEnergy = 0;
-    let dropSample = Math.floor(sr * duration * 0.50); // default: middle
-
+    let dropSample = Math.floor(sr * duration * 0.50);
     for (let i = startSample; i < endSample - windowSize; i += windowSize / 2) {
       let energy = 0;
-      for (let j = 0; j < windowSize; j++) {
-        energy += data[i + j] * data[i + j];
-      }
-      if (energy > maxEnergy) {
-        maxEnergy = energy;
-        dropSample = i;
-      }
+      for (let j = 0; j < windowSize; j++) energy += data[i + j] * data[i + j];
+      if (energy > maxEnergy) { maxEnergy = energy; dropSample = i; }
     }
     return dropSample / sr;
-  } catch {
-    return 0;
-  }
+  } catch { return 0; }
 }
 
 async function detectBPM(audioBuffer: AudioBuffer): Promise<number> {
@@ -58,11 +50,8 @@ async function detectBPM(audioBuffer: AudioBuffer): Promise<number> {
     const source = offlineCtx.createBufferSource();
     source.buffer = shortBuffer;
     const filter = offlineCtx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.value = 150;
-    source.connect(filter);
-    filter.connect(offlineCtx.destination);
-    source.start(0);
+    filter.type = 'lowpass'; filter.frequency.value = 150;
+    source.connect(filter); filter.connect(offlineCtx.destination); source.start(0);
     const rendered = await offlineCtx.startRendering();
     const d = rendered.getChannelData(0);
     const ws = Math.floor(sampleRate * 0.02);
@@ -78,8 +67,7 @@ async function detectBPM(audioBuffer: AudioBuffer): Promise<number> {
     let lastPeak = -10;
     for (let i = 1; i < energies.length - 1; i++) {
       if (energies[i] > threshold && energies[i] > energies[i-1] && energies[i] > energies[i+1] && i - lastPeak > 10) {
-        peaks.push(i * ws / sampleRate);
-        lastPeak = i;
+        peaks.push(i * ws / sampleRate); lastPeak = i;
       }
     }
     if (peaks.length < 4) return 120;
@@ -92,6 +80,7 @@ async function detectBPM(audioBuffer: AudioBuffer): Promise<number> {
   } catch { return 120; }
 }
 
+// ── ScratchDeck with real loop support ──────────────────────────────────────
 class ScratchDeck {
   private ctx: AudioContext;
   private buffer: AudioBuffer | null = null;
@@ -101,6 +90,9 @@ class ScratchDeck {
   private _rate = 1;
   private _playing = false;
   private _scratching = false;
+  private _loopActive = false;
+  private _loopStart = 0;
+  private _loopEnd = 0;
   private rafId: number | null = null;
   private startedAt = 0;
   private startOffset = 0;
@@ -117,6 +109,7 @@ class ScratchDeck {
     this._position = 0;
     this._playing = false;
     this._scratching = false;
+    this._loopActive = false;
   }
 
   get position() { return this._position; }
@@ -152,6 +145,41 @@ class ScratchDeck {
     }
   }
 
+  // ── REAL LOOP ────────────────────────────────────────────────────────────
+  // Uses AudioBufferSourceNode.loop + loopStart + loopEnd
+  // This is seamless — no click, no gap, perfect beat loop
+  setLoop(active: boolean, start?: number, end?: number) {
+    this._loopActive = active;
+    if (start !== undefined) this._loopStart = start;
+    if (end !== undefined) this._loopEnd = end;
+
+    if (this.source) {
+      this.source.loop = active;
+      if (active) {
+        this.source.loopStart = this._loopStart;
+        this.source.loopEnd = this._loopEnd;
+        // If playhead is outside loop, jump to loopStart
+        if (this._position < this._loopStart || this._position >= this._loopEnd) {
+          this.seekTo(this._loopStart);
+        }
+      }
+    }
+
+    // If playing and toggling loop on, restart source with loop enabled
+    if (this._playing && !this._scratching) {
+      this._stopSource();
+      this._startSource(
+        active ? this._loopStart : this._position,
+        this._rate
+      );
+      if (!active) this._trackProgress();
+    }
+  }
+
+  getLoopState() {
+    return { active: this._loopActive, start: this._loopStart, end: this._loopEnd };
+  }
+
   scratchTick(velocity: number) {
     if (!this.buffer) return;
     this._scratching = true;
@@ -166,7 +194,7 @@ class ScratchDeck {
     this._stopSource();
     if (this._playing) {
       this._startSource(this._position, this._rate);
-      this._trackProgress();
+      if (!this._loopActive) this._trackProgress();
     }
   }
 
@@ -189,6 +217,14 @@ class ScratchDeck {
     const src = this.ctx.createBufferSource();
     src.buffer = this.buffer;
     src.playbackRate.value = rate;
+
+    // Apply loop settings
+    if (this._loopActive && this._loopEnd > this._loopStart) {
+      src.loop = true;
+      src.loopStart = this._loopStart;
+      src.loopEnd = this._loopEnd;
+    }
+
     src.connect(this.inputNode);
     src.start(0, offset);
     this.source = src;
@@ -205,8 +241,20 @@ class ScratchDeck {
     const tick = () => {
       if (!this._playing || this._scratching) return;
       if (this.source) {
-        this._position = this.startOffset + (this.ctx.currentTime - this.startedAt) * this._rate;
-        if (this._position >= this.duration) { this._position = this.duration; this.stop(); return; }
+        let pos = this.startOffset + (this.ctx.currentTime - this.startedAt) * this._rate;
+        // Loop position wrapping for display
+        if (this._loopActive && this._loopEnd > this._loopStart) {
+          const loopLen = this._loopEnd - this._loopStart;
+          if (pos >= this._loopEnd) {
+            pos = this._loopStart + ((pos - this._loopStart) % loopLen);
+          }
+        }
+        this._position = pos;
+        if (!this._loopActive && pos >= this.duration) {
+          this._position = this.duration;
+          this.stop();
+          return;
+        }
       }
       this.rafId = requestAnimationFrame(tick);
     };
@@ -242,14 +290,15 @@ function makeEQ(ctx: AudioContext) {
 }
 
 export const useDJEngine = () => {
-  const [deckA, setDeckA] = useState<DeckState>({
+  const defaultDeck = (key: string, dropTime = 0): DeckState => ({
     isPlaying: false, bpm: 120, volume: 0, progress: 0, duration: 0,
-    fileName: 'No Track Loaded', isSyncing: false, playbackRate: 1, isLoaded: false, key: '1A', energy: 0, dropTime: 0,
+    fileName: 'No Track Loaded', isSyncing: false, playbackRate: 1, isLoaded: false,
+    key, energy: 0, dropTime,
+    loopActive: false, loopStart: 0, loopEnd: 0,
   });
-  const [deckB, setDeckB] = useState<DeckState>({
-    isPlaying: false, bpm: 120, volume: 0, progress: 0, duration: 0,
-    fileName: 'No Track Loaded', isSyncing: false, playbackRate: 1, isLoaded: false, key: '2A', energy: 0, dropTime: 0,
-  });
+
+  const [deckA, setDeckA] = useState<DeckState>(defaultDeck('1A'));
+  const [deckB, setDeckB] = useState<DeckState>(defaultDeck('2A'));
   const [crossfader, setCrossfader] = useState(0.5);
   const [isRecording, setIsRecording] = useState(false);
   const [masterEnergy, setMasterEnergy] = useState(0);
@@ -257,6 +306,8 @@ export const useDJEngine = () => {
   const actx = useRef<AudioContext | null>(null);
   const scratchA = useRef<ScratchDeck | null>(null);
   const scratchB = useRef<ScratchDeck | null>(null);
+  const audioBufferA = useRef<AudioBuffer | null>(null);
+  const audioBufferB = useRef<AudioBuffer | null>(null);
   const gainA = useRef<GainNode | null>(null);
   const gainB = useRef<GainNode | null>(null);
   const masterGain = useRef<GainNode | null>(null);
@@ -288,15 +339,13 @@ export const useDJEngine = () => {
     masterGain.current.connect(masterAnalyser.current);
     masterAnalyser.current.connect(ctx.destination);
 
-    // Deck A
     scratchA.current = new ScratchDeck(ctx);
     gainA.current = ctx.createGain(); gainA.current.gain.value = 1;
     analyserA.current = ctx.createAnalyser(); analyserA.current.fftSize = 512;
     freqAnalyserA.current = ctx.createAnalyser(); freqAnalyserA.current.fftSize = 128;
     const eqA = makeEQ(ctx);
     eqALow.current = eqA.low; eqAMid.current = eqA.mid; eqAHigh.current = eqA.high;
-    scratchA.current.inputNode.connect(eqA.input);
-    eqA.output.connect(gainA.current);
+    scratchA.current.inputNode.connect(eqA.input); eqA.output.connect(gainA.current);
     const delayNodeA = ctx.createDelay(2); delayNodeA.delayTime.value = 0.3;
     const delayFeedA = ctx.createGain(); delayFeedA.gain.value = 0.4;
     delayWetA.current = ctx.createGain(); delayWetA.current.gain.value = 0;
@@ -308,15 +357,13 @@ export const useDJEngine = () => {
     scratchA.current.inputNode.connect(convA); convA.connect(reverbWetA.current); reverbWetA.current.connect(gainA.current);
     gainA.current.connect(analyserA.current); gainA.current.connect(freqAnalyserA.current); gainA.current.connect(masterGain.current);
 
-    // Deck B
     scratchB.current = new ScratchDeck(ctx);
     gainB.current = ctx.createGain(); gainB.current.gain.value = 1;
     analyserB.current = ctx.createAnalyser(); analyserB.current.fftSize = 512;
     freqAnalyserB.current = ctx.createAnalyser(); freqAnalyserB.current.fftSize = 128;
     const eqB = makeEQ(ctx);
     eqBLow.current = eqB.low; eqBMid.current = eqB.mid; eqBHigh.current = eqB.high;
-    scratchB.current.inputNode.connect(eqB.input);
-    eqB.output.connect(gainB.current);
+    scratchB.current.inputNode.connect(eqB.input); eqB.output.connect(gainB.current);
     const delayNodeB = ctx.createDelay(2); delayNodeB.delayTime.value = 0.3;
     const delayFeedB = ctx.createGain(); delayFeedB.gain.value = 0.4;
     delayWetB.current = ctx.createGain(); delayWetB.current.gain.value = 0;
@@ -370,17 +417,22 @@ export const useDJEngine = () => {
       const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
       const sd = deck === 'A' ? scratchA.current : scratchB.current;
       if (!sd) return;
+      if (deck === 'A') audioBufferA.current = audioBuffer;
+      else audioBufferB.current = audioBuffer;
       sd.setBuffer(audioBuffer);
-      const update = { fileName, duration: audioBuffer.duration, progress: 0, isPlaying: false, isLoaded: true, bpm: 120, dropTime: audioBuffer.duration * 0.5 };
+      const update: Partial<DeckState> = {
+        fileName, duration: audioBuffer.duration, progress: 0,
+        isPlaying: false, isLoaded: true, bpm: 120,
+        dropTime: audioBuffer.duration * 0.5,
+        loopActive: false, loopStart: 0, loopEnd: 0,
+      };
       if (deck === 'A') setDeckA(prev => ({ ...prev, ...update }));
       else setDeckB(prev => ({ ...prev, ...update }));
 
-      // Detect BPM and drop in parallel
       Promise.all([detectBPM(audioBuffer), detectDrop(audioBuffer)]).then(([bpm, dropTime]) => {
         if (deck === 'A') setDeckA(prev => ({ ...prev, bpm, dropTime }));
         else setDeckB(prev => ({ ...prev, bpm, dropTime }));
       });
-
       analyzeTrack(fileName).then(a => {
         if (deck === 'A') setDeckA(prev => ({ ...prev, key: a.key }));
         else setDeckB(prev => ({ ...prev, key: a.key }));
@@ -431,6 +483,31 @@ export const useDJEngine = () => {
     else setDeckB(p => ({ ...p, progress: time }));
   }, []);
 
+  // ── LOOP — real beat loop ─────────────────────────────────────────────────
+  // loopLength in beats (1, 2, 4, 8 beats) or seconds
+  const setLoop = useCallback((deck: 'A' | 'B', active: boolean, loopLength?: number) => {
+    const sd = deck === 'A' ? scratchA.current : scratchB.current;
+    const deckState = deck === 'A' ? deckA : deckB;
+    if (!sd) return;
+
+    if (!active) {
+      sd.setLoop(false);
+      if (deck === 'A') setDeckA(p => ({ ...p, loopActive: false }));
+      else setDeckB(p => ({ ...p, loopActive: false }));
+      return;
+    }
+
+    // Calculate loop end from current position + loopLength
+    const beatLen = deckState.bpm > 0 ? 60 / deckState.bpm : 0.5;
+    const len = loopLength ?? beatLen * 4; // default: 4 beats
+    const start = deckState.progress;
+    const end = Math.min(start + len, deckState.duration - 0.01);
+
+    sd.setLoop(true, start, end);
+    if (deck === 'A') setDeckA(p => ({ ...p, loopActive: true, loopStart: start, loopEnd: end }));
+    else setDeckB(p => ({ ...p, loopActive: true, loopStart: start, loopEnd: end }));
+  }, [deckA, deckB]);
+
   const scratchStart = useCallback((_deck: 'A' | 'B') => { actx.current?.resume(); }, []);
   const scratchMove = useCallback((deck: 'A' | 'B', velocity: number) => {
     (deck === 'A' ? scratchA.current : scratchB.current)?.scratchTick(velocity);
@@ -474,7 +551,6 @@ export const useDJEngine = () => {
     }, 100);
   }, [crossfader, handleCrossfade]);
 
-  // Ramp EQ gain smoothly
   const rampEQ = (node: BiquadFilterNode | null, target: number, durationMs: number) => {
     if (!node || !actx.current) return;
     const ctx = actx.current;
@@ -484,49 +560,31 @@ export const useDJEngine = () => {
 
   return {
     deckA, deckB, crossfader, isRecording, masterEnergy,
-    analyserDataA: () => {
-      if (!analyserA.current) return null;
-      const d = new Float32Array(analyserA.current.fftSize);
-      analyserA.current.getFloatTimeDomainData(d); return d;
-    },
-    analyserDataB: () => {
-      if (!analyserB.current) return null;
-      const d = new Float32Array(analyserB.current.fftSize);
-      analyserB.current.getFloatTimeDomainData(d); return d;
-    },
-    freqDataA: () => {
-      if (!freqAnalyserA.current) return null;
-      const d = new Float32Array(freqAnalyserA.current.frequencyBinCount);
-      freqAnalyserA.current.getFloatFrequencyData(d); return d;
-    },
-    freqDataB: () => {
-      if (!freqAnalyserB.current) return null;
-      const d = new Float32Array(freqAnalyserB.current.frequencyBinCount);
-      freqAnalyserB.current.getFloatFrequencyData(d); return d;
-    },
-    loadTrack, togglePlay, seekTo,
+    audioBufferA: audioBufferA.current,
+    audioBufferB: audioBufferB.current,
+    analyserDataA: () => { if (!analyserA.current) return null; const d = new Float32Array(analyserA.current.fftSize); analyserA.current.getFloatTimeDomainData(d); return d; },
+    analyserDataB: () => { if (!analyserB.current) return null; const d = new Float32Array(analyserB.current.fftSize); analyserB.current.getFloatTimeDomainData(d); return d; },
+    freqDataA: () => { if (!freqAnalyserA.current) return null; const d = new Float32Array(freqAnalyserA.current.frequencyBinCount); freqAnalyserA.current.getFloatFrequencyData(d); return d; },
+    freqDataB: () => { if (!freqAnalyserB.current) return null; const d = new Float32Array(freqAnalyserB.current.frequencyBinCount); freqAnalyserB.current.getFloatFrequencyData(d); return d; },
+    loadTrack, togglePlay, seekTo, setLoop,
     scratchStart, scratchMove, scratchEnd,
     handleCrossfade, setPlaybackRate,
     syncDecks, startRecording, stopRecording, startAutoMix,
     setFilter: (_deck: 'A' | 'B', _freq: number) => {},
     setEQ: (deck: 'A' | 'B', low: number, mid: number, high: number) => {
-      const lowNode  = deck === 'A' ? eqALow.current  : eqBLow.current;
-      const midNode  = deck === 'A' ? eqAMid.current  : eqBMid.current;
-      const highNode = deck === 'A' ? eqAHigh.current : eqBHigh.current;
-      if (lowNode)  lowNode.gain.value  = low;
-      if (midNode)  midNode.gain.value  = mid;
-      if (highNode) highNode.gain.value = high;
+      const l = deck === 'A' ? eqALow.current : eqBLow.current;
+      const m = deck === 'A' ? eqAMid.current : eqBMid.current;
+      const h = deck === 'A' ? eqAHigh.current : eqBHigh.current;
+      if (l) l.gain.value = low;
+      if (m) m.gain.value = mid;
+      if (h) h.gain.value = high;
     },
     setFX: (deck: 'A' | 'B', type: 'delay' | 'reverb', value: number) => {
-      if (type === 'delay') {
-        const wet = deck === 'A' ? delayWetA.current : delayWetB.current;
-        if (wet) wet.gain.value = value;
-      } else {
-        const wet = deck === 'A' ? reverbWetA.current : reverbWetB.current;
-        if (wet) wet.gain.value = value;
-      }
+      const wet = type === 'delay'
+        ? (deck === 'A' ? delayWetA.current : delayWetB.current)
+        : (deck === 'A' ? reverbWetA.current : reverbWetB.current);
+      if (wet) wet.gain.value = value;
     },
-    // Magic DJ EQ automation — ramp EQ gains over time
     magicEQRamp: (deck: 'A' | 'B', low: number, mid: number, high: number, durationMs: number) => {
       rampEQ(deck === 'A' ? eqALow.current : eqBLow.current, low, durationMs);
       rampEQ(deck === 'A' ? eqAMid.current : eqBMid.current, mid, durationMs);
