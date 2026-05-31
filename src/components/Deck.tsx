@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { Play, Pause, Upload } from 'lucide-react';
 import { Turntable } from './Turntable';
 import { Visualizer } from './Visualizer';
@@ -37,12 +37,37 @@ export const Deck: React.FC<DeckProps> = ({
   getVisualizerData, getFreqData, accentColor = '#6366f1'
 }) => {
   const [eq, setEq] = useState({ low: 0, mid: 0, high: 0 });
-  const [hotcues, setHotcues] = useState<(number | null)[]>([null, null, null, null]);
+  // Hotcues persisted per track in localStorage
+  const hotcueKey = `vd-hotcues-${id}-${state.fileName}`;
+  const [hotcues, setHotcuesState] = useState<(number | null)[]>(() => {
+    try {
+      const saved = localStorage.getItem(hotcueKey);
+      return saved ? JSON.parse(saved) : [null, null, null, null];
+    } catch { return [null, null, null, null]; }
+  });
+
+  const setHotcues = (next: (number | null)[]) => {
+    setHotcuesState(next);
+    try { localStorage.setItem(hotcueKey, JSON.stringify(next)); } catch {}
+  };
   const [echoOn, setEchoOn] = useState(false);
   const [spaceOn, setSpaceOn] = useState(false);
   const [channelVolume, setChannelVolume] = useState(1);
   const [filterActive, setFilterActive] = useState(false);
   const [flangerActive, setFlangerActive] = useState(false);
+
+  // Reload hotcues when a new track is loaded
+  React.useEffect(() => {
+    if (!state.fileName || state.fileName === 'No Track Loaded') {
+      setHotcuesState([null, null, null, null]);
+      return;
+    }
+    try {
+      const key = `vd-hotcues-${id}-${state.fileName}`;
+      const saved = localStorage.getItem(key);
+      setHotcuesState(saved ? JSON.parse(saved) : [null, null, null, null]);
+    } catch { setHotcuesState([null, null, null, null]); }
+  }, [state.fileName, id]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) onLoad(e.target.files[0]);
@@ -64,9 +89,26 @@ export const Deck: React.FC<DeckProps> = ({
   const toggleEcho = () => { const n = !echoOn; setEchoOn(n); onFXChange('delay', n ? 0.65 : 0); };
   const toggleSpace = () => { const n = !spaceOn; setSpaceOn(n); onFXChange('reverb', n ? 0.7 : 0); };
 
+  const longPressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const markOrJumpHotcue = (i: number) => {
     if (hotcues[i] !== null) { onSeekTo(hotcues[i]!); }
     else { const n = [...hotcues]; n[i] = state.progress; setHotcues(n); }
+  };
+
+  const clearHotcue = (i: number) => {
+    const n = [...hotcues]; n[i] = null; setHotcues(n);
+  };
+
+  const onHotcueDown = (i: number) => {
+    longPressTimer.current = setTimeout(() => clearHotcue(i), 600);
+  };
+
+  const onHotcueUp = (i: number) => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
   };
 
   const loopBeats = [1, 2, 4, 8];
@@ -310,7 +352,13 @@ export const Deck: React.FC<DeckProps> = ({
             <span className="text-[4px] text-slate-600 uppercase font-black block mb-0.5">Hotcues</span>
             <div className="grid grid-cols-4 gap-0.5">
               {[0,1,2,3].map((i) => (
-                <button key={i} onClick={() => markOrJumpHotcue(i)}
+                <button key={i}
+                  onClick={() => markOrJumpHotcue(i)}
+                  onMouseDown={() => onHotcueDown(i)}
+                  onMouseUp={() => onHotcueUp(i)}
+                  onMouseLeave={() => onHotcueUp(i)}
+                  onTouchStart={() => onHotcueDown(i)}
+                  onTouchEnd={() => onHotcueUp(i)}
                   className={`py-0.5 rounded text-[4px] font-black uppercase transition-all active:scale-95 ${
                     hotcues[i] !== null ? `${hotcueColors[i]} text-white` : 'bg-white/5 text-slate-700 border border-white/5'}`}
                   style={hotcues[i] !== null ? { boxShadow: `0 0 4px ${hotcueGlow[i]}60` } : {}}>
