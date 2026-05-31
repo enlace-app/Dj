@@ -79,7 +79,6 @@ export default function App() {
             onScratchEnd={() => engine.scratchEnd('A')}
             onSeekTo={(t) => engine.seekTo('A', t)}
             onSetLoop={(deck, active, len) => engine.setLoop(deck, active, len)}
-            onVolumeChange={(deck, vol) => engine.setChannelVolume(deck, vol)}
             getVisualizerData={engine.analyserDataA}
             getFreqData={engine.freqDataA}
             accentColor={skin.accent}
@@ -125,7 +124,6 @@ export default function App() {
             onScratchEnd={() => engine.scratchEnd('B')}
             onSeekTo={(t) => engine.seekTo('B', t)}
             onSetLoop={(deck, active, len) => engine.setLoop(deck, active, len)}
-            onVolumeChange={(deck, vol) => engine.setChannelVolume(deck, vol)}
             getVisualizerData={engine.analyserDataB}
             getFreqData={engine.freqDataB}
             accentColor={skin.accent}
