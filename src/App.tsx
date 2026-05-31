@@ -79,6 +79,11 @@ export default function App() {
             onScratchEnd={() => engine.scratchEnd('A')}
             onSeekTo={(t) => engine.seekTo('A', t)}
             onSetLoop={(deck, active, len) => engine.setLoop(deck, active, len)}
+            onBrake={(deck) => engine.brake(deck)}
+            onBackspin={(deck) => engine.backspin(deck)}
+            onFilterSweep={(deck, active) => engine.filterSweep(deck, active)}
+            onFlanger={(deck, active) => engine.flanger(deck, active)}
+            onVolumeChange={(deck, vol) => engine.setChannelVolume(deck, vol)}
             getVisualizerData={engine.analyserDataA}
             getFreqData={engine.freqDataA}
             accentColor={skin.accent}
@@ -90,6 +95,7 @@ export default function App() {
             crossfade={engine.crossfader}
             onCrossfadeChange={engine.handleCrossfade}
             isRecording={engine.isRecording}
+            recordingTime={engine.recordingTime}
             onStartRecording={engine.startRecording}
             onStopRecording={engine.stopRecording}
             onSync={engine.syncDecks}
@@ -124,6 +130,11 @@ export default function App() {
             onScratchEnd={() => engine.scratchEnd('B')}
             onSeekTo={(t) => engine.seekTo('B', t)}
             onSetLoop={(deck, active, len) => engine.setLoop(deck, active, len)}
+            onBrake={(deck) => engine.brake(deck)}
+            onBackspin={(deck) => engine.backspin(deck)}
+            onFilterSweep={(deck, active) => engine.filterSweep(deck, active)}
+            onFlanger={(deck, active) => engine.flanger(deck, active)}
+            onVolumeChange={(deck, vol) => engine.setChannelVolume(deck, vol)}
             getVisualizerData={engine.analyserDataB}
             getFreqData={engine.freqDataB}
             accentColor={skin.accent}
