@@ -609,5 +609,76 @@ export const useDJEngine = () => {
       rampEQ(deck === 'A' ? eqAMid.current : eqBMid.current, mid, durationMs);
       rampEQ(deck === 'A' ? eqAHigh.current : eqBHigh.current, high, durationMs);
     },
+
+    // ── FX PAD ─────────────────────────────────────────────────────────────
+    // Brake: gradually slow down then stop over 2s
+    brake: (deck: 'A' | 'B') => {
+      const sd = deck === 'A' ? scratchA.current : scratchB.current;
+      if (!sd || !sd.isPlaying) return;
+      const steps = 40;
+      let i = 0;
+      const interval = window.setInterval(() => {
+        i++;
+        const rate = Math.max(0.001, 1 - (i / steps));
+        sd.setRate(rate);
+        if (i >= steps) {
+          clearInterval(interval);
+          sd.stop();
+          sd.setRate(1);
+          if (deck === 'A') setDeckA(p => ({ ...p, isPlaying: false, playbackRate: 1 }));
+          else setDeckB(p => ({ ...p, isPlaying: false, playbackRate: 1 }));
+        }
+      }, 50);
+    },
+
+    // Backspin: reverse rapidly then restart from current position
+    backspin: (deck: 'A' | 'B') => {
+      const sd = deck === 'A' ? scratchA.current : scratchB.current;
+      if (!sd) return;
+      const wasPlaying = sd.isPlaying;
+      const pos = sd.position;
+      // Spin back 2 seconds rapidly
+      const target = Math.max(0, pos - 2);
+      sd.seekTo(target);
+      if (wasPlaying) sd.play();
+    },
+
+    // Filter Sweep: open/close hi-pass filter while held
+    filterSweep: (deck: 'A' | 'B', active: boolean) => {
+      const ctx = actx.current;
+      const low = deck === 'A' ? eqALow.current : eqBLow.current;
+      if (!low || !ctx) return;
+      if (active) {
+        // Kill bass (sweep up)
+        low.gain.setValueAtTime(low.gain.value, ctx.currentTime);
+        low.gain.linearRampToValueAtTime(-15, ctx.currentTime + 0.3);
+      } else {
+        // Restore bass
+        low.gain.setValueAtTime(low.gain.value, ctx.currentTime);
+        low.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
+      }
+    },
+
+    // Flanger: pitch modulation while held
+    flanger: (deck: 'A' | 'B', active: boolean) => {
+      const sd = deck === 'A' ? scratchA.current : scratchB.current;
+      if (!sd) return;
+      if (active) {
+        // Wobble rate for flanger feel
+        let t = 0;
+        const flangerInterval = window.setInterval(() => {
+          t += 0.1;
+          const wobble = 1 + Math.sin(t * 8) * 0.015;
+          sd.setRate(wobble);
+        }, 16);
+        (sd as any)._flangerInterval = flangerInterval;
+      } else {
+        if ((sd as any)._flangerInterval) {
+          clearInterval((sd as any)._flangerInterval);
+          (sd as any)._flangerInterval = null;
+        }
+        sd.setRate(deck === 'A' ? deckA.playbackRate : deckB.playbackRate);
+      }
+    },
   };
 };
