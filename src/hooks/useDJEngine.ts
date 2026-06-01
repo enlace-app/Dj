@@ -611,64 +611,95 @@ export const useDJEngine = () => {
     },
 
     // ── FX PAD ─────────────────────────────────────────────────────────────
-    // Brake: gradually slow down then stop over 2s
+
+    // BRAKE: gradually slows the track to a stop over 2 seconds
     brake: (deck: 'A' | 'B') => {
       const sd = deck === 'A' ? scratchA.current : scratchB.current;
-      if (!sd || !sd.isPlaying) return;
-      const steps = 40;
+      const currentRate = deck === 'A' ? deckA.playbackRate : deckB.playbackRate;
+      if (!sd) return;
+      // Start playing if not already
+      if (!sd.isPlaying) sd.play();
+      const steps = 50;
       let i = 0;
       const interval = window.setInterval(() => {
         i++;
-        const rate = Math.max(0.001, 1 - (i / steps));
-        sd.setRate(rate);
+        const t = i / steps;
+        // Exponential slowdown for realistic vinyl feel
+        const rate = currentRate * Math.pow(1 - t, 2);
+        sd.setRate(Math.max(0.001, rate));
         if (i >= steps) {
           clearInterval(interval);
           sd.stop();
-          sd.setRate(1);
-          if (deck === 'A') setDeckA(p => ({ ...p, isPlaying: false, playbackRate: 1 }));
-          else setDeckB(p => ({ ...p, isPlaying: false, playbackRate: 1 }));
+          // Restore normal rate for next play
+          sd.setRate(currentRate);
+          if (deck === 'A') setDeckA(p => ({ ...p, isPlaying: false }));
+          else setDeckB(p => ({ ...p, isPlaying: false }));
         }
-      }, 50);
+      }, 40);
     },
 
-    // Backspin: reverse rapidly then restart from current position
+    // BACKSPIN: spins back ~3 seconds then continues from there
     backspin: (deck: 'A' | 'B') => {
       const sd = deck === 'A' ? scratchA.current : scratchB.current;
       if (!sd) return;
       const wasPlaying = sd.isPlaying;
-      const pos = sd.position;
-      // Spin back 2 seconds rapidly
-      const target = Math.max(0, pos - 2);
-      sd.seekTo(target);
-      if (wasPlaying) sd.play();
+      const currentPos = sd.position;
+      const spinBackSec = 3;
+      const target = Math.max(0, currentPos - spinBackSec);
+
+      // Rapid backspin animation using scratchTick
+      let spun = 0;
+      const totalTicks = 20;
+      const interval = window.setInterval(() => {
+        spun++;
+        // Call scratchTick with high negative velocity for backspin sound
+        sd.scratchTick(-800);
+        if (spun >= totalTicks) {
+          clearInterval(interval);
+          sd.scratchEnd();
+          sd.seekTo(target);
+          if (wasPlaying) sd.play();
+        }
+      }, 16);
     },
 
-    // Filter Sweep: open/close hi-pass filter while held
+    // FILTER SWEEP: kills bass instantly when held, restores on release
     filterSweep: (deck: 'A' | 'B', active: boolean) => {
       const ctx = actx.current;
-      const low = deck === 'A' ? eqALow.current : eqBLow.current;
-      if (!low || !ctx) return;
+      const lowNode = deck === 'A' ? eqALow.current : eqBLow.current;
+      const midNode = deck === 'A' ? eqAMid.current : eqBMid.current;
+      if (!lowNode || !midNode || !ctx) return;
+      const now = ctx.currentTime;
       if (active) {
-        // Kill bass (sweep up)
-        low.gain.setValueAtTime(low.gain.value, ctx.currentTime);
-        low.gain.linearRampToValueAtTime(-15, ctx.currentTime + 0.3);
+        // Sweep: kill bass + reduce mids (filter sweep up effect)
+        lowNode.gain.cancelScheduledValues(now);
+        lowNode.gain.setValueAtTime(lowNode.gain.value, now);
+        lowNode.gain.linearRampToValueAtTime(-15, now + 0.2);
+        midNode.gain.cancelScheduledValues(now);
+        midNode.gain.setValueAtTime(midNode.gain.value, now);
+        midNode.gain.linearRampToValueAtTime(-8, now + 0.3);
       } else {
-        // Restore bass
-        low.gain.setValueAtTime(low.gain.value, ctx.currentTime);
-        low.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
+        // Restore
+        lowNode.gain.cancelScheduledValues(now);
+        lowNode.gain.setValueAtTime(lowNode.gain.value, now);
+        lowNode.gain.linearRampToValueAtTime(0, now + 0.4);
+        midNode.gain.cancelScheduledValues(now);
+        midNode.gain.setValueAtTime(midNode.gain.value, now);
+        midNode.gain.linearRampToValueAtTime(0, now + 0.4);
       }
     },
 
-    // Flanger: pitch modulation while held
+    // FLANGER: wobbles playback rate for chorus/flanger effect while held
     flanger: (deck: 'A' | 'B', active: boolean) => {
       const sd = deck === 'A' ? scratchA.current : scratchB.current;
+      const baseRate = deck === 'A' ? deckA.playbackRate : deckB.playbackRate;
       if (!sd) return;
       if (active) {
-        // Wobble rate for flanger feel
         let t = 0;
         const flangerInterval = window.setInterval(() => {
-          t += 0.1;
-          const wobble = 1 + Math.sin(t * 8) * 0.015;
+          t += 0.08;
+          // LFO wobble: ±2% around base rate
+          const wobble = baseRate + Math.sin(t * 6) * baseRate * 0.022;
           sd.setRate(wobble);
         }, 16);
         (sd as any)._flangerInterval = flangerInterval;
@@ -677,7 +708,8 @@ export const useDJEngine = () => {
           clearInterval((sd as any)._flangerInterval);
           (sd as any)._flangerInterval = null;
         }
-        sd.setRate(deck === 'A' ? deckA.playbackRate : deckB.playbackRate);
+        // Restore base rate
+        sd.setRate(baseRate);
       }
     },
   };
