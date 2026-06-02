@@ -610,60 +610,51 @@ export const useDJEngine = () => {
       rampEQ(deck === 'A' ? eqAHigh.current : eqBHigh.current, high, durationMs);
     },
 
-    // ── FX PAD ─────────────────────────────────────────────────────────────
+    // ── FX PAD — sin distorsión, efectos limpios ───────────────────────────
 
-    // BRAKE: gradually slows the track to a stop over 2 seconds
+    // BRAKE: fade de volumen suave hacia silencio (no toca el playbackRate)
     brake: (deck: 'A' | 'B') => {
+      const ctx = actx.current;
+      const gainNode = deck === 'A' ? channelGainA.current : channelGainB.current;
       const sd = deck === 'A' ? scratchA.current : scratchB.current;
-      const currentRate = deck === 'A' ? deckA.playbackRate : deckB.playbackRate;
-      if (!sd) return;
-      // Start playing if not already
-      if (!sd.isPlaying) sd.play();
-      const steps = 50;
-      let i = 0;
-      const interval = window.setInterval(() => {
-        i++;
-        const t = i / steps;
-        // Exponential slowdown for realistic vinyl feel
-        const rate = currentRate * Math.pow(1 - t, 2);
-        sd.setRate(Math.max(0.001, rate));
-        if (i >= steps) {
-          clearInterval(interval);
-          sd.stop();
-          // Restore normal rate for next play
-          sd.setRate(currentRate);
-          if (deck === 'A') setDeckA(p => ({ ...p, isPlaying: false }));
-          else setDeckB(p => ({ ...p, isPlaying: false }));
-        }
+      if (!ctx || !gainNode || !sd) return;
+      const now = ctx.currentTime;
+      // Fade out volume over 2s — sin clicks, sin distorsión
+      gainNode.gain.cancelScheduledValues(now);
+      gainNode.gain.setValueAtTime(gainNode.gain.value, now);
+      gainNode.gain.linearRampToValueAtTime(0, now + 2);
+      // Stop and restore after 2.1s
+      window.setTimeout(() => {
+        sd.stop();
+        gainNode.gain.cancelScheduledValues(ctx.currentTime);
+        gainNode.gain.setValueAtTime(0, ctx.currentTime);
+        gainNode.gain.linearRampToValueAtTime(1, ctx.currentTime + 0.1);
+        if (deck === 'A') setDeckA(p => ({ ...p, isPlaying: false }));
+        else setDeckB(p => ({ ...p, isPlaying: false }));
+      }, 2100);
+    },
+
+    // BACKSPIN: salta 3s hacia atrás instantáneamente sin ruido
+    backspin: (deck: 'A' | 'B') => {
+      const sd = deck === 'A' ? scratchA.current : scratchB.current;
+      const ctx = actx.current;
+      const gainNode = deck === 'A' ? channelGainA.current : channelGainB.current;
+      if (!sd || !ctx || !gainNode) return;
+      const wasPlaying = sd.isPlaying;
+      const target = Math.max(0, sd.position - 3);
+      // Brief volume dip to hide the seek click
+      const now = ctx.currentTime;
+      gainNode.gain.cancelScheduledValues(now);
+      gainNode.gain.setValueAtTime(gainNode.gain.value, now);
+      gainNode.gain.linearRampToValueAtTime(0, now + 0.04);
+      gainNode.gain.linearRampToValueAtTime(1, now + 0.12);
+      window.setTimeout(() => {
+        sd.seekTo(target);
+        if (wasPlaying && !sd.isPlaying) sd.play();
       }, 40);
     },
 
-    // BACKSPIN: spins back ~3 seconds then continues from there
-    backspin: (deck: 'A' | 'B') => {
-      const sd = deck === 'A' ? scratchA.current : scratchB.current;
-      if (!sd) return;
-      const wasPlaying = sd.isPlaying;
-      const currentPos = sd.position;
-      const spinBackSec = 3;
-      const target = Math.max(0, currentPos - spinBackSec);
-
-      // Rapid backspin animation using scratchTick
-      let spun = 0;
-      const totalTicks = 20;
-      const interval = window.setInterval(() => {
-        spun++;
-        // Call scratchTick with high negative velocity for backspin sound
-        sd.scratchTick(-800);
-        if (spun >= totalTicks) {
-          clearInterval(interval);
-          sd.scratchEnd();
-          sd.seekTo(target);
-          if (wasPlaying) sd.play();
-        }
-      }, 16);
-    },
-
-    // FILTER SWEEP: kills bass instantly when held, restores on release
+    // FILTER SWEEP: corta bajos y medios con rampa suave — sin distorsión
     filterSweep: (deck: 'A' | 'B', active: boolean) => {
       const ctx = actx.current;
       const lowNode = deck === 'A' ? eqALow.current : eqBLow.current;
@@ -671,45 +662,45 @@ export const useDJEngine = () => {
       if (!lowNode || !midNode || !ctx) return;
       const now = ctx.currentTime;
       if (active) {
-        // Sweep: kill bass + reduce mids (filter sweep up effect)
         lowNode.gain.cancelScheduledValues(now);
         lowNode.gain.setValueAtTime(lowNode.gain.value, now);
-        lowNode.gain.linearRampToValueAtTime(-15, now + 0.2);
+        lowNode.gain.linearRampToValueAtTime(-15, now + 0.25);
         midNode.gain.cancelScheduledValues(now);
         midNode.gain.setValueAtTime(midNode.gain.value, now);
-        midNode.gain.linearRampToValueAtTime(-8, now + 0.3);
+        midNode.gain.linearRampToValueAtTime(-6, now + 0.35);
       } else {
-        // Restore
         lowNode.gain.cancelScheduledValues(now);
         lowNode.gain.setValueAtTime(lowNode.gain.value, now);
-        lowNode.gain.linearRampToValueAtTime(0, now + 0.4);
+        lowNode.gain.linearRampToValueAtTime(0, now + 0.5);
         midNode.gain.cancelScheduledValues(now);
         midNode.gain.setValueAtTime(midNode.gain.value, now);
-        midNode.gain.linearRampToValueAtTime(0, now + 0.4);
+        midNode.gain.linearRampToValueAtTime(0, now + 0.5);
       }
     },
 
-    // FLANGER: wobbles playback rate for chorus/flanger effect while held
+    // FLANGER: modula el volumen (tremolo) en vez del pitch — sin distorsión
     flanger: (deck: 'A' | 'B', active: boolean) => {
-      const sd = deck === 'A' ? scratchA.current : scratchB.current;
-      const baseRate = deck === 'A' ? deckA.playbackRate : deckB.playbackRate;
-      if (!sd) return;
+      const gainNode = deck === 'A' ? channelGainA.current : channelGainB.current;
+      if (!gainNode) return;
+      const key = `_flangerInterval_${deck}`;
       if (active) {
         let t = 0;
-        const flangerInterval = window.setInterval(() => {
-          t += 0.08;
-          // LFO wobble: ±2% around base rate
-          const wobble = baseRate + Math.sin(t * 6) * baseRate * 0.022;
-          sd.setRate(wobble);
+        const id = window.setInterval(() => {
+          t += 0.05;
+          // Tremolo LFO: volumen oscila entre 0.7 y 1.0
+          gainNode.gain.value = 0.85 + Math.sin(t * 8) * 0.15;
         }, 16);
-        (sd as any)._flangerInterval = flangerInterval;
+        (gainNode as any)[key] = id;
       } else {
-        if ((sd as any)._flangerInterval) {
-          clearInterval((sd as any)._flangerInterval);
-          (sd as any)._flangerInterval = null;
+        const id = (gainNode as any)[key];
+        if (id) { clearInterval(id); (gainNode as any)[key] = null; }
+        // Restore volume smoothly
+        const ctx = actx.current;
+        if (ctx) {
+          gainNode.gain.cancelScheduledValues(ctx.currentTime);
+          gainNode.gain.setValueAtTime(gainNode.gain.value, ctx.currentTime);
+          gainNode.gain.linearRampToValueAtTime(1, ctx.currentTime + 0.1);
         }
-        // Restore base rate
-        sd.setRate(baseRate);
       }
     },
   };
