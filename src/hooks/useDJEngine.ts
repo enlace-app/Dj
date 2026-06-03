@@ -315,7 +315,11 @@ export const useDJEngine = () => {
     streamDest.current = ctx.createMediaStreamDestination();
     masterGain.current.connect(streamDest.current);
 
-    // Deck A
+    // Deck A — clean signal path:
+    // ScratchDeck.inputNode → EQ(low→mid→high) → gainA(crossfade) → channelGainA(volume) → master
+    // Effects tap from EQ output (after EQ, before crossfade):
+    //   gainA → delayNode → feedback → delayWet(0) → channelGainA
+    //   gainA → convolver → reverbWet(0) → channelGainA
     scratchA.current = new ScratchDeck(ctx);
     gainA.current = ctx.createGain(); gainA.current.gain.value = 1;
     channelGainA.current = ctx.createGain(); channelGainA.current.gain.value = 1;
@@ -323,22 +327,31 @@ export const useDJEngine = () => {
     freqAnalyserA.current = ctx.createAnalyser(); freqAnalyserA.current.fftSize = 128;
     const eqA = makeEQ(ctx);
     eqALow.current = eqA.low; eqAMid.current = eqA.mid; eqAHigh.current = eqA.high;
-    scratchA.current.inputNode.connect(eqA.input); eqA.output.connect(gainA.current);
-    const delayNodeA = ctx.createDelay(2); delayNodeA.delayTime.value = 0.3;
-    const delayFeedA = ctx.createGain(); delayFeedA.gain.value = 0.4;
+    // Dry path: inputNode → EQ → gainA → channelGainA
+    scratchA.current.inputNode.connect(eqA.input);
+    eqA.output.connect(gainA.current);
+    gainA.current.connect(channelGainA.current);
+    // Delay: tap from gainA output (post-EQ, post-crossfade)
+    const delayNodeA = ctx.createDelay(1); delayNodeA.delayTime.value = 0.3;
+    const delayFeedA = ctx.createGain(); delayFeedA.gain.value = 0.35;
     delayWetA.current = ctx.createGain(); delayWetA.current.gain.value = 0;
-    scratchA.current.inputNode.connect(delayNodeA);
-    delayNodeA.connect(delayFeedA); delayFeedA.connect(delayNodeA);
-    delayNodeA.connect(delayWetA.current); delayWetA.current.connect(gainA.current);
+    gainA.current.connect(delayNodeA);         // tap dry signal
+    delayNodeA.connect(delayFeedA);
+    delayFeedA.connect(delayNodeA);            // feedback
+    delayNodeA.connect(delayWetA.current);
+    delayWetA.current.connect(channelGainA.current); // wet output
+    // Reverb: tap from gainA output
     const convA = ctx.createConvolver(); convA.buffer = makeImpulse(ctx);
     reverbWetA.current = ctx.createGain(); reverbWetA.current.gain.value = 0;
-    scratchA.current.inputNode.connect(convA); convA.connect(reverbWetA.current); reverbWetA.current.connect(gainA.current);
-    gainA.current.connect(channelGainA.current);
+    gainA.current.connect(convA);
+    convA.connect(reverbWetA.current);
+    reverbWetA.current.connect(channelGainA.current); // wet output
+    // Analysers after channelGain
     channelGainA.current.connect(analyserA.current);
     channelGainA.current.connect(freqAnalyserA.current);
     channelGainA.current.connect(masterGain.current);
 
-    // Deck B
+    // Deck B — same clean path as Deck A
     scratchB.current = new ScratchDeck(ctx);
     gainB.current = ctx.createGain(); gainB.current.gain.value = 1;
     channelGainB.current = ctx.createGain(); channelGainB.current.gain.value = 1;
@@ -346,17 +359,22 @@ export const useDJEngine = () => {
     freqAnalyserB.current = ctx.createAnalyser(); freqAnalyserB.current.fftSize = 128;
     const eqB = makeEQ(ctx);
     eqBLow.current = eqB.low; eqBMid.current = eqB.mid; eqBHigh.current = eqB.high;
-    scratchB.current.inputNode.connect(eqB.input); eqB.output.connect(gainB.current);
-    const delayNodeB = ctx.createDelay(2); delayNodeB.delayTime.value = 0.3;
-    const delayFeedB = ctx.createGain(); delayFeedB.gain.value = 0.4;
+    scratchB.current.inputNode.connect(eqB.input);
+    eqB.output.connect(gainB.current);
+    gainB.current.connect(channelGainB.current);
+    const delayNodeB = ctx.createDelay(1); delayNodeB.delayTime.value = 0.3;
+    const delayFeedB = ctx.createGain(); delayFeedB.gain.value = 0.35;
     delayWetB.current = ctx.createGain(); delayWetB.current.gain.value = 0;
-    scratchB.current.inputNode.connect(delayNodeB);
-    delayNodeB.connect(delayFeedB); delayFeedB.connect(delayNodeB);
-    delayNodeB.connect(delayWetB.current); delayWetB.current.connect(gainB.current);
+    gainB.current.connect(delayNodeB);
+    delayNodeB.connect(delayFeedB);
+    delayFeedB.connect(delayNodeB);
+    delayNodeB.connect(delayWetB.current);
+    delayWetB.current.connect(channelGainB.current);
     const convB = ctx.createConvolver(); convB.buffer = makeImpulse(ctx);
     reverbWetB.current = ctx.createGain(); reverbWetB.current.gain.value = 0;
-    scratchB.current.inputNode.connect(convB); convB.connect(reverbWetB.current); reverbWetB.current.connect(gainB.current);
-    gainB.current.connect(channelGainB.current);
+    gainB.current.connect(convB);
+    convB.connect(reverbWetB.current);
+    reverbWetB.current.connect(channelGainB.current);
     channelGainB.current.connect(analyserB.current);
     channelGainB.current.connect(freqAnalyserB.current);
     channelGainB.current.connect(masterGain.current);
