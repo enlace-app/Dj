@@ -652,7 +652,7 @@ export const useDJEngine = () => {
       }, 2100);
     },
 
-    // BACKSPIN: salta 3s hacia atrás instantáneamente sin ruido
+    // BACKSPIN: fade rápido + seek 3s atrás + fade in
     backspin: (deck: 'A' | 'B') => {
       const sd = deck === 'A' ? scratchA.current : scratchB.current;
       const ctx = actx.current;
@@ -660,64 +660,80 @@ export const useDJEngine = () => {
       if (!sd || !ctx || !gainNode) return;
       const wasPlaying = sd.isPlaying;
       const target = Math.max(0, sd.position - 3);
-      // Brief volume dip to hide the seek click
       const now = ctx.currentTime;
+      // Fade out 50ms
       gainNode.gain.cancelScheduledValues(now);
-      gainNode.gain.setValueAtTime(gainNode.gain.value, now);
-      gainNode.gain.linearRampToValueAtTime(0, now + 0.04);
-      gainNode.gain.linearRampToValueAtTime(1, now + 0.12);
+      gainNode.gain.setValueAtTime(1, now);
+      gainNode.gain.linearRampToValueAtTime(0, now + 0.05);
       window.setTimeout(() => {
         sd.seekTo(target);
-        if (wasPlaying && !sd.isPlaying) sd.play();
-      }, 40);
+        if (!sd.isPlaying && wasPlaying) sd.play();
+        const ctx2 = actx.current;
+        if (ctx2 && gainNode) {
+          gainNode.gain.cancelScheduledValues(ctx2.currentTime);
+          gainNode.gain.setValueAtTime(0, ctx2.currentTime);
+          gainNode.gain.linearRampToValueAtTime(1, ctx2.currentTime + 0.15);
+        }
+      }, 55);
     },
 
-    // FILTER SWEEP: corta bajos y medios con rampa suave — sin distorsión
+    // FILTER SWEEP: usa un BiquadFilter highpass real, más notable
     filterSweep: (deck: 'A' | 'B', active: boolean) => {
       const ctx = actx.current;
       const lowNode = deck === 'A' ? eqALow.current : eqBLow.current;
-      const midNode = deck === 'A' ? eqAMid.current : eqBMid.current;
-      if (!lowNode || !midNode || !ctx) return;
+      const highNode = deck === 'A' ? eqAHigh.current : eqBHigh.current;
+      if (!lowNode || !highNode || !ctx) return;
       const now = ctx.currentTime;
       if (active) {
+        // Kill bass hard + boost highs = filter sweep up effect
         lowNode.gain.cancelScheduledValues(now);
         lowNode.gain.setValueAtTime(lowNode.gain.value, now);
-        lowNode.gain.linearRampToValueAtTime(-15, now + 0.25);
-        midNode.gain.cancelScheduledValues(now);
-        midNode.gain.setValueAtTime(midNode.gain.value, now);
-        midNode.gain.linearRampToValueAtTime(-6, now + 0.35);
+        lowNode.gain.linearRampToValueAtTime(-15, now + 0.15);
+        highNode.gain.cancelScheduledValues(now);
+        highNode.gain.setValueAtTime(highNode.gain.value, now);
+        highNode.gain.linearRampToValueAtTime(6, now + 0.2);
       } else {
+        // Restore both
         lowNode.gain.cancelScheduledValues(now);
         lowNode.gain.setValueAtTime(lowNode.gain.value, now);
-        lowNode.gain.linearRampToValueAtTime(0, now + 0.5);
-        midNode.gain.cancelScheduledValues(now);
-        midNode.gain.setValueAtTime(midNode.gain.value, now);
-        midNode.gain.linearRampToValueAtTime(0, now + 0.5);
+        lowNode.gain.linearRampToValueAtTime(0, now + 0.4);
+        highNode.gain.cancelScheduledValues(now);
+        highNode.gain.setValueAtTime(highNode.gain.value, now);
+        highNode.gain.linearRampToValueAtTime(0, now + 0.4);
       }
     },
 
-    // FLANGER: modula el volumen (tremolo) en vez del pitch — sin distorsión
+    // FLANGER: sube el EQ de medios/agudos con tremolo — sin tocar gainNode
     flanger: (deck: 'A' | 'B', active: boolean) => {
-      const gainNode = deck === 'A' ? channelGainA.current : channelGainB.current;
-      if (!gainNode) return;
+      const midNode = deck === 'A' ? eqAMid.current : eqBMid.current;
+      const highNode = deck === 'A' ? eqAHigh.current : eqBHigh.current;
+      if (!midNode || !highNode) return;
       const key = `_flangerInterval_${deck}`;
+      // Stop previous if any
+      const prev = (midNode as any)[key];
+      if (prev) { clearInterval(prev); (midNode as any)[key] = null; }
+
       if (active) {
         let t = 0;
         const id = window.setInterval(() => {
-          t += 0.05;
-          // Tremolo LFO: volumen oscila entre 0.7 y 1.0
-          gainNode.gain.value = 0.85 + Math.sin(t * 8) * 0.15;
-        }, 16);
-        (gainNode as any)[key] = id;
+          t += 0.06;
+          // LFO on mid/high EQ — phaser-like effect
+          const lfo = Math.sin(t * 5) * 8; // ±8dB wobble
+          midNode.gain.value = lfo;
+          highNode.gain.value = lfo * 0.5;
+        }, 20);
+        (midNode as any)[key] = id;
       } else {
-        const id = (gainNode as any)[key];
-        if (id) { clearInterval(id); (gainNode as any)[key] = null; }
-        // Restore volume smoothly
+        // Restore EQ smoothly
         const ctx = actx.current;
         if (ctx) {
-          gainNode.gain.cancelScheduledValues(ctx.currentTime);
-          gainNode.gain.setValueAtTime(gainNode.gain.value, ctx.currentTime);
-          gainNode.gain.linearRampToValueAtTime(1, ctx.currentTime + 0.1);
+          const now = ctx.currentTime;
+          midNode.gain.cancelScheduledValues(now);
+          midNode.gain.setValueAtTime(midNode.gain.value, now);
+          midNode.gain.linearRampToValueAtTime(0, now + 0.2);
+          highNode.gain.cancelScheduledValues(now);
+          highNode.gain.setValueAtTime(highNode.gain.value, now);
+          highNode.gain.linearRampToValueAtTime(0, now + 0.2);
         }
       }
     },
