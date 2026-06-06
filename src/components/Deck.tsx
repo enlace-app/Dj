@@ -328,70 +328,33 @@ export const Deck: React.FC<DeckProps> = ({
             </button>
           </div>
 
-          {/* EQ — vertical sliders tall for easy touch control */}
+          {/* EQ — knobs compactos horizontales */}
           <div className="shrink-0">
-            <div className="flex justify-between mb-1">
+            <div className="flex justify-between mb-0.5">
               <span className="text-[5px] text-slate-600 uppercase font-black">EQ</span>
               <button onClick={() => { setEq({ low: 0, mid: 0, high: 0 }); onEQChange(id, 0, 0, 0); }}
                 className="text-[4px] text-slate-700 hover:text-slate-400 uppercase">Reset</button>
             </div>
-            <div className="flex gap-1 justify-between">
+            <div className="flex gap-1">
               {(['low', 'mid', 'high'] as const).map((band, i) => {
                 const colors = ['#f97316', '#eab308', '#06b6d4'];
                 const labels = ['Lo', 'Mid', 'Hi'];
                 const val = eq[band];
-                const pct = ((val + 15) / 30) * 100; // 0-100%
                 return (
-                  <div key={band} className="flex-1 flex flex-col items-center gap-0.5">
-                    {/* Value display */}
-                    <span className="text-[5px] font-mono font-black"
+                  <div key={band} className="flex-1 flex flex-col items-center gap-px">
+                    <span className="text-[4px] font-mono font-black"
                       style={{ color: val === 0 ? '#475569' : colors[i] }}>
                       {val > 0 ? `+${val}` : val}
                     </span>
-                    {/* Vertical slider — tall and easy to touch */}
-                    <div className="relative flex items-center justify-center" style={{ height: 48, width: 24 }}>
-                      {/* Track */}
-                      <div className="absolute rounded-full"
-                        style={{ width: 4, height: 48, background: 'rgba(255,255,255,0.08)', left: '50%', transform: 'translateX(-50%)' }} />
-                      {/* Fill */}
-                      <div className="absolute rounded-full"
-                        style={{
-                          width: 4,
-                          height: `${Math.abs(val) / 15 * 50}%`,
-                          background: colors[i],
-                          left: '50%',
-                          transform: 'translateX(-50%)',
-                          bottom: val >= 0 ? '50%' : undefined,
-                          top: val < 0 ? '50%' : undefined,
-                          opacity: 0.8,
-                        }} />
-                      {/* Center line */}
-                      <div className="absolute w-3 h-px bg-white/20" style={{ top: '50%' }} />
-                      {/* Thumb — big for touch */}
-                      <div className="absolute rounded-full border-2 z-10"
-                        style={{
-                          width: 16, height: 16,
-                          background: val === 0 ? '#1e293b' : colors[i],
-                          borderColor: colors[i],
-                          left: '50%',
-                          top: `${100 - pct}%`,
-                          transform: 'translate(-50%, -50%)',
-                          boxShadow: val !== 0 ? `0 0 8px ${colors[i]}80` : 'none',
-                        }} />
-                      {/* Invisible input on top */}
-                      <input
-                        type="range" min="-15" max="15" step="1" value={val}
-                        onChange={(e) => handleEQ(band, parseFloat(e.target.value))}
-                        className="absolute opacity-0 cursor-pointer"
-                        style={{
-                          width: 48, height: 24,
-                          left: '50%', top: '50%',
-                          transform: 'translate(-50%, -50%) rotate(-90deg)',
-                          touchAction: 'none',
-                        }}
-                      />
-                    </div>
-                    <span className="text-[5px] text-slate-600 font-black uppercase">{labels[i]}</span>
+                    <input type="range" min="-15" max="15" step="1" value={val}
+                      onChange={(e) => handleEQ(band, parseFloat(e.target.value))}
+                      className="w-full cursor-pointer appearance-none rounded"
+                      style={{
+                        height: 20,
+                        accentColor: colors[i],
+                        background: `linear-gradient(to right, ${colors[i]} ${((val+15)/30)*100}%, rgba(255,255,255,0.1) ${((val+15)/30)*100}%)`,
+                      }} />
+                    <span className="text-[4px] uppercase font-black" style={{ color: colors[i] }}>{labels[i]}</span>
                   </div>
                 );
               })}
