@@ -300,7 +300,7 @@ export const Mixer: React.FC<MixerProps> = ({
   const recFmt = `${Math.floor(recordingTime / 60)}:${String(recordingTime % 60).padStart(2, '0')}`;
 
   return (
-    <div className="flex flex-col items-center justify-between h-full py-2 px-1 backdrop-blur-2xl rounded-2xl w-20 xs:w-28 sm:w-48 shadow-2xl relative overflow-hidden shrink-0 transition-all duration-300"
+    <div className="flex flex-col items-center justify-between h-full py-1.5 px-1 backdrop-blur-2xl rounded-2xl w-full shadow-2xl relative overflow-hidden shrink-0 transition-all duration-300"
       style={{
         background: 'rgba(255,255,255,0.03)',
         border: `1px solid ${magicActive ? phaseColor : accentColor}30`,
@@ -379,7 +379,7 @@ export const Mixer: React.FC<MixerProps> = ({
             ? { background: 'rgba(239,68,68,0.2)', borderColor: 'rgba(239,68,68,0.5)', color: '#ef4444' }
             : { background: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)', color: '#94a3b8' }}>
           {isRecording ? <Square size={10} fill="currentColor" /> : <Mic size={10} />}
-          <span className="text-[6px] font-black uppercase hidden xs:inline">
+          <span className="text-[6px] font-black uppercase inline">
             {isRecording ? recFmt : 'Rec'}
           </span>
         </button>
@@ -388,7 +388,7 @@ export const Mixer: React.FC<MixerProps> = ({
           className="flex items-center justify-center gap-1 p-2 rounded-lg border transition-all active:scale-95"
           style={{ background: `${accentColor}10`, borderColor: `${accentColor}30`, color: accentColor }}>
           <Download size={10} />
-          <span className="text-[6px] font-black uppercase hidden xs:inline">Sync</span>
+          <span className="text-[6px] font-black uppercase inline">Sync</span>
         </button>
 
         <button onClick={aiMixActive ? stopAiMix : startAiMix}
@@ -397,7 +397,7 @@ export const Mixer: React.FC<MixerProps> = ({
             ? { background: 'rgba(168,85,247,0.2)', borderColor: 'rgba(168,85,247,0.6)', color: '#c084fc' }
             : { background: 'rgba(168,85,247,0.08)', borderColor: 'rgba(168,85,247,0.3)', color: '#a78bfa' }}>
           <Zap size={10} className={aiMixActive ? 'animate-pulse' : ''} />
-          <span className="text-[6px] font-black uppercase hidden xs:inline">{aiMixActive ? 'Stop' : 'AI Mix'}</span>
+          <span className="text-[6px] font-black uppercase inline">{aiMixActive ? 'Stop' : 'AI Mix'}</span>
         </button>
 
         {/* ✨ MAGIC */}
@@ -414,7 +414,7 @@ export const Mixer: React.FC<MixerProps> = ({
           )}
           <Sparkles size={10} className={magicActive ? 'animate-spin' : ''}
             style={{ color: magicActive ? phaseColor : '#fbbf24' }} />
-          <span className="text-[6px] font-black uppercase hidden xs:inline relative z-10"
+          <span className="text-[6px] font-black uppercase inline relative z-10"
             style={{ color: magicActive ? phaseColor : '#fbbf24' }}>
             {magicActive ? '⏹ Stop' : '✨ Magic'}
           </span>
