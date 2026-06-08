@@ -361,55 +361,54 @@ export const Deck: React.FC<DeckProps> = ({
             </div>
           </div>
 
-          {/* Hotcues */}
+          {/* Hotcues + Loop en una fila */}
           <div className="shrink-0">
-            <span className="text-[4px] text-slate-600 uppercase font-black block mb-0.5">Hotcues</span>
-            <div className="grid grid-cols-4 gap-0.5">
-              {[0,1,2,3].map((i) => (
-                <button key={i}
-                  onClick={() => markOrJumpHotcue(i)}
-                  onMouseDown={() => onHotcueDown(i)}
-                  onMouseUp={() => onHotcueUp(i)}
-                  onMouseLeave={() => onHotcueUp(i)}
-                  onTouchStart={() => onHotcueDown(i)}
-                  onTouchEnd={() => onHotcueUp(i)}
-                  className={`py-0.5 rounded text-[4px] font-black uppercase transition-all active:scale-95 ${
-                    hotcues[i] !== null ? `${hotcueColors[i]} text-white` : 'bg-white/5 text-slate-700 border border-white/5'}`}
-                  style={hotcues[i] !== null ? { boxShadow: `0 0 4px ${hotcueGlow[i]}60` } : {}}>
-                  {hotcues[i] !== null ? fmt(hotcues[i]!) : `C${i+1}`}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Loop */}
-          <div className="shrink-0">
-            <span className="text-[4px] text-slate-600 uppercase font-black block mb-0.5">Loop</span>
-            <div className="grid grid-cols-4 gap-0.5">
-              {loopBeats.map((beats) => {
-                const isActive = state.loopActive && currentLoopBeats === beats;
-                return (
-                  <button key={beats} onClick={() => toggleLoop(beats)} disabled={!state.isLoaded}
-                    className="py-0.5 rounded text-[5px] font-black uppercase transition-all active:scale-95 disabled:opacity-30 border"
-                    style={isActive
-                      ? { background: `${accentColor}30`, borderColor: accentColor, color: accentColor, boxShadow: `0 0 6px ${accentColor}50` }
-                      : { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)', color: '#64748b' }}>
-                    {beats}B
+            <div className="flex gap-1 items-center mb-0.5">
+              <span className="text-[4px] text-slate-600 uppercase font-black">CUE</span>
+              <div className="flex gap-0.5 flex-1">
+                {[0,1,2,3].map((i) => (
+                  <button key={i}
+                    onClick={() => markOrJumpHotcue(i)}
+                    onMouseDown={() => onHotcueDown(i)}
+                    onMouseUp={() => onHotcueUp(i)}
+                    onMouseLeave={() => onHotcueUp(i)}
+                    onTouchStart={() => onHotcueDown(i)}
+                    onTouchEnd={() => onHotcueUp(i)}
+                    className={`flex-1 py-0.5 rounded text-[4px] font-black uppercase transition-all active:scale-95 ${
+                      hotcues[i] !== null ? `${hotcueColors[i]} text-white` : 'bg-white/5 text-slate-700 border border-white/5'}`}
+                    style={hotcues[i] !== null ? { boxShadow: `0 0 4px ${hotcueGlow[i]}60` } : {}}>
+                    {hotcues[i] !== null ? fmt(hotcues[i]!) : `C${i+1}`}
                   </button>
-                );
-              })}
+                ))}
+              </div>
+              <span className="text-[4px] text-slate-600 uppercase font-black">LP</span>
+              <div className="flex gap-0.5">
+                {loopBeats.map((beats) => {
+                  const isActive = state.loopActive && currentLoopBeats === beats;
+                  return (
+                    <button key={beats} onClick={() => toggleLoop(beats)} disabled={!state.isLoaded}
+                      className="py-0.5 px-0.5 rounded text-[4px] font-black uppercase transition-all active:scale-95 disabled:opacity-30 border"
+                      style={isActive
+                        ? { background: `${accentColor}30`, borderColor: accentColor, color: accentColor }
+                        : { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)', color: '#64748b' }}>
+                      {beats}B
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
           {/* Pitch */}
-          <div className="shrink-0">
-            <div className="flex justify-between mb-px">
-              <span className="text-[4px] text-slate-600 uppercase font-black">Pitch</span>
-              <span className="text-[4px] font-mono" style={{ color: accentColor }}>{(state.playbackRate * 100).toFixed(0)}%</span>
+          <div className="shrink-0 pb-1">
+            <div className="flex justify-between mb-0.5">
+              <span className="text-[5px] text-slate-500 uppercase font-black">Pitch</span>
+              <span className="text-[5px] font-mono font-black" style={{ color: accentColor }}>{(state.playbackRate * 100).toFixed(0)}%</span>
             </div>
             <input type="range" min="0.5" max="1.5" step="0.01" value={state.playbackRate}
               onChange={(e) => onRateChange(parseFloat(e.target.value))}
-              className="w-full h-1 bg-white/10 rounded appearance-none cursor-pointer accent-indigo-500" />
+              className="w-full rounded cursor-pointer"
+              style={{ height: 18, accentColor }} />
           </div>
 
         </div>
